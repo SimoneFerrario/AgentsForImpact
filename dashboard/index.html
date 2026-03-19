@@ -596,6 +596,7 @@ function addNode(name, url, role, token, ttydUrl) {
     alpha: 0,  // fade in
     lastWarnAt: 0,
     failCount: 0,
+    lastSeenAt: 0,
     ttydUrl: resolvedTtydUrl,
   };
   nodes.push(node);
@@ -690,6 +691,7 @@ async function pollNodeHealth(id) {
       const wasOffline = node.status !== 'online';
       node.status = 'online';
       node.failCount = 0;
+      node.lastSeenAt = Date.now();
       node.lastProbe = url;
 
       // Extract agents from multiple response shapes
@@ -722,38 +724,50 @@ async function pollNodeHealth(id) {
     }
   }
 
-  // OpenClaw Gateway fallback: WS probe (port 18789 is often WS-only)
+  // OpenClaw Gateway fallback: WS probe ONLY for gateway/18789 nodes
   if (!success) {
+    let tryWs = false;
     try {
-      const ws = await wsProbe(node, 2200);
-      const wasOffline = node.status !== 'online';
-      node.status = 'online';
-      node.failCount = 0;
-      node.lastProbe = ws.via;
-      if (!node.agents.length) {
-        node.agents = [{ role: 'openclaw', name: 'OpenClaw Gateway', icon: '🦞', model: 'ws', color: C.cyan, status: 'active' }];
+      const u = new URL(normalizeBaseUrl(node.url));
+      tryWs = (node.role === 'gateway') || (u.port === '18789');
+    } catch {}
+
+    if (tryWs) {
+      try {
+        const ws = await wsProbe(node, 2200);
+        const wasOffline = node.status !== 'online';
+        node.status = 'online';
+        node.failCount = 0;
+        node.lastSeenAt = Date.now();
+        node.lastProbe = ws.via;
+        if (!node.agents.length) {
+          node.agents = [{ role: 'openclaw', name: 'OpenClaw Gateway', icon: '🦞', model: 'ws', color: C.cyan, status: 'active' }];
+        }
+        if (wasOffline) {
+          logEvent('success', `${node.name} ONLINE via ${ws.via} (WS)`);
+          for (let i = 0; i < 16; i++) spawnBurst(node.x, node.y, C.cyan);
+        }
+        success = true;
+      } catch (e) {
+        lastErr = `${e?.message || e}`;
       }
-      if (wasOffline) {
-        logEvent('success', `${node.name} ONLINE via ${ws.via} (WS)`);
-        for (let i = 0; i < 16; i++) spawnBurst(node.x, node.y, C.cyan);
-      }
-      success = true;
-    } catch (e) {
-      lastErr = `${e?.message || e}`;
     }
   }
 
   if (!success) {
     node.failCount = (node.failCount || 0) + 1;
 
-    const isBusy = ((nodeWorkingUntil[node.id] || 0) > Date.now()) || ((nodeStreamingUntil[node.id] || 0) > Date.now());
-    const shouldKeepAlive = isBusy || node.failCount < 3;
+    const now = Date.now();
+    const isBusy = ((nodeWorkingUntil[node.id] || 0) > now) || ((nodeStreamingUntil[node.id] || 0) > now);
+    const recentlySeen = (now - (node.lastSeenAt || 0)) < 45000; // 45s grace window
+    const shouldKeepAlive = isBusy || recentlySeen || node.failCount < 3;
 
     if (shouldKeepAlive) {
-      // Node might be busy (dispatch/WS occupied) or this is a transient probe miss
-      node.status = isBusy ? 'online' : (node.status === 'online' ? 'online' : 'connecting');
+      // Node might be busy, recently healthy, or transiently unreachable
+      node.status = 'online';
       if (Date.now() - (node.lastWarnAt || 0) > 15000) {
-        logEvent('warn', `${node.name} probe miss tolerated (busy/transient): ${lastErr || 'no response'}`);
+        const why = isBusy ? 'busy' : (recentlySeen ? 'recently-seen' : 'transient');
+        logEvent('warn', `${node.name} probe miss tolerated (${why}): ${lastErr || 'no response'}`);
         node.lastWarnAt = Date.now();
       }
     } else {
