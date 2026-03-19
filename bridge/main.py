@@ -320,6 +320,33 @@ async def health_check():
     }
 
 
+@app.get("/api/nemoclaw-status")
+async def nemoclaw_status():
+    """Poll each Brev instance's /api/status endpoint and return live health."""
+    nodes = [
+        {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com"},
+        {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com"},
+    ]
+    results = []
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for node in nodes:
+            try:
+                r = await client.get(f"{node['url']}/api/status")
+                data = r.json()
+                results.append({
+                    "name": node["name"],
+                    "status": "online",
+                    "detail": {
+                        "instance_name": data.get("instance_name"),
+                        "pipeline_count": data.get("pipeline_count", 0),
+                        "agents": list(data.get("agents", {}).keys()),
+                    }
+                })
+            except Exception as e:
+                results.append({"name": node["name"], "status": "offline", "error": str(e)})
+    return {"nodes": results, "checked_at": datetime.utcnow().isoformat() + "Z"}
+
+
 @app.get("/api/nodes")
 async def get_nodes():
     """Return known agent nodes for auto-registration in the swarm UI."""
@@ -327,6 +354,67 @@ async def get_nodes():
         {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
     ]}
+
+
+@app.get("/api/brev/list")
+async def list_brev_instances():
+    """List all Brev instances by parsing `brev ls` output."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["brev", "ls"],
+            capture_output=True, text=True, timeout=30
+        )
+        # Parse the text table output into structured data
+        lines = result.stdout.strip().split('\n')
+        instances = []
+        for line in lines[2:]:  # skip header rows
+            parts = line.split()
+            if len(parts) >= 6:
+                instances.append({
+                    "name": parts[0],
+                    "status": parts[1],
+                    "build": parts[2],
+                    "shell": parts[3],
+                    "id": parts[4],
+                    "machine": parts[5],
+                    "ready": parts[3] == "READY" and parts[1] == "RUNNING"
+                })
+        return {"instances": instances}
+    except Exception as e:
+        return {"instances": [], "error": str(e)}
+
+
+@app.post("/api/brev/connect")
+async def connect_brev_instance(request: Request):
+    """Start a cloudflared tunnel on a Brev instance and return the public URL."""
+    import asyncio
+    data = await request.json()
+    name = data.get("instanceName", "").strip()
+    if not name:
+        return {"error": "instanceName required"}
+
+    # Start cloudflared tunnel
+    proc = await asyncio.create_subprocess_exec(
+        "brev", "exec", name,
+        "nohup /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate > /tmp/cf-8080.log 2>&1 &",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    await proc.communicate()
+
+    # Wait and get URL
+    await asyncio.sleep(8)
+    url_proc = await asyncio.create_subprocess_exec(
+        "brev", "exec", name,
+        "grep -o 'https://[a-z0-9-]*.trycloudflare.com' /tmp/cf-8080.log | head -1",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await url_proc.communicate()
+    url = stdout.decode().strip().split('\n')[0].strip()
+
+    if url and url.startswith('https://'):
+        return {"url": url, "instanceName": name}
+    return {"error": "Could not get tunnel URL", "instanceName": name}
 
 
 @app.get("/")
