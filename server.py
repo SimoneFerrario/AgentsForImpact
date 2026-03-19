@@ -473,6 +473,49 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(200, {"reply": f"Error: {e}", "latency_ms": 0, "model": MODELS["super"]})
             return
 
+        if self.path == "/api/deploy":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            prompt = body.get("prompt", "").strip()
+            if not prompt:
+                self._json(400, {"error": "prompt required"})
+                return
+
+            import subprocess as _sp, sys as _sys
+            deploy_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deploy-v0.py")
+            env = dict(os.environ)
+
+            t0 = time.time()
+            try:
+                result = _sp.run(
+                    [_sys.executable, deploy_script, prompt],
+                    capture_output=True, text=True, timeout=180, env=env
+                )
+                elapsed = round((time.time() - t0) * 1000)
+                output = result.stdout + result.stderr
+
+                # Extract URL or local path from output
+                url = None
+                local_path = None
+                for line in output.splitlines():
+                    if "Deployed:" in line:
+                        url = line.split("Deployed:")[-1].strip()
+                    elif "Saved to" in line or "/tmp/app.html" in line:
+                        local_path = "/tmp/app.html"
+
+                self._json(200, {
+                    "status": "ok",
+                    "url": url,
+                    "local_path": local_path,
+                    "elapsed_ms": elapsed,
+                    "output": output.strip(),
+                })
+            except _sp.TimeoutExpired:
+                self._json(200, {"status": "error", "error": "Generation timed out (180s)", "elapsed_ms": 180000})
+            except Exception as e:
+                self._json(200, {"status": "error", "error": str(e)})
+            return
+
         if self.path == "/api/brev/create":
             import subprocess, threading
             length = int(self.headers.get("Content-Length", 0))
