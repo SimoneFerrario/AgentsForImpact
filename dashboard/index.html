@@ -316,6 +316,8 @@ let selectedNodeId = null;
 let hoveredNodeId = null;
 let mouseX = 0, mouseY = 0;
 let dragNode = null, dragOffX = 0, dragOffY = 0;
+let panMode = false, panLastX = 0, panLastY = 0;
+let view = { x: 0, y: 0, scale: 1 };
 let animFrame;
 let taskCount = 0;
 
@@ -336,7 +338,6 @@ function resize() {
   W = rect.width; H = rect.height;
   canvas.width = W * dpr; canvas.height = H * dpr;
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener('resize', resize);
 
@@ -572,15 +573,31 @@ function spawnConnectionParticle(conn) {
 }
 
 // ── Drawing ──
+function toWorld(sx, sy){
+  return { x: (sx - view.x) / view.scale, y: (sy - view.y) / view.scale };
+}
+
+function toScreen(wx, wy){
+  return { x: wx * view.scale + view.x, y: wy * view.scale + view.y };
+}
+
 function drawGrid() {
-  ctx.strokeStyle = 'rgba(30,45,74,.3)';
-  ctx.lineWidth = 0.5;
+  const worldTL = toWorld(0,0);
+  const worldBR = toWorld(W,H);
   const step = 60;
-  for (let x = 0; x < W; x += step) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  const startX = Math.floor(worldTL.x/step)*step;
+  const endX = Math.ceil(worldBR.x/step)*step;
+  const startY = Math.floor(worldTL.y/step)*step;
+  const endY = Math.ceil(worldBR.y/step)*step;
+
+  ctx.strokeStyle = 'rgba(30,45,74,.3)';
+  ctx.lineWidth = 0.5 / Math.max(0.7, view.scale);
+
+  for (let x = startX; x <= endX; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, worldTL.y); ctx.lineTo(x, worldBR.y); ctx.stroke();
   }
-  for (let y = 0; y < H; y += step) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  for (let y = startY; y <= endY; y += step) {
+    ctx.beginPath(); ctx.moveTo(worldTL.x, y); ctx.lineTo(worldBR.x, y); ctx.stroke();
   }
 }
 
@@ -834,13 +851,19 @@ function drawBackground(t) {
 function render() {
   const t = Date.now() / 1000;
 
+  // reset to screen space for clear/background
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  // Background gradient
+
+  // Background gradient (screen-space)
   const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
   bg.addColorStop(0, '#0a0f1a');
   bg.addColorStop(1, '#060a12');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
+
+  // world transform for map content
+  ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.x, dpr * view.y);
 
   drawGrid();
   drawBackground(t);
@@ -852,6 +875,9 @@ function render() {
   drawLinkBursts();
   nodes.forEach(n => drawNode(n, t));
   drawParticles();
+
+  // back to screen for HUD text
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   // "No nodes" hint
   if (nodes.length === 0) {
@@ -940,8 +966,17 @@ function applyForces() {
 // ── Mouse interactions ──
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
-  mouseX = e.clientX - rect.left;
-  mouseY = e.clientY - rect.top;
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const w = toWorld(sx, sy);
+  mouseX = w.x; mouseY = w.y;
+
+  if (panMode) {
+    view.x += (sx - panLastX);
+    view.y += (sy - panLastY);
+    panLastX = sx; panLastY = sy;
+    return;
+  }
 
   if (dragNode) {
     dragNode.x = mouseX + dragOffX;
@@ -958,10 +993,16 @@ canvas.addEventListener('mousemove', e => {
       return;
     }
   }
-  canvas.style.cursor = 'default';
+  canvas.style.cursor = 'grab';
 });
 
 canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const w = toWorld(sx, sy);
+  mouseX = w.x; mouseY = w.y;
+
   for (const n of nodes) {
     const dx = mouseX - n.x, dy = mouseY - n.y;
     if (Math.sqrt(dx * dx + dy * dy) < n.radius * 1.3) {
@@ -973,12 +1014,35 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
   }
+
+  // background drag => pan map
+  panMode = true;
+  panLastX = sx; panLastY = sy;
+  canvas.style.cursor = 'grabbing';
+
   selectedNodeId = null;
   renderNodeList();
 });
 
-canvas.addEventListener('mouseup', () => { dragNode = null; });
-canvas.addEventListener('mouseleave', () => { dragNode = null; hoveredNodeId = null; });
+canvas.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
+canvas.addEventListener('mouseleave', () => { dragNode = null; panMode = false; hoveredNodeId = null; });
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  const before = toWorld(sx, sy);
+  const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+  const newScale = Math.min(2.2, Math.max(0.45, view.scale * zoomFactor));
+  view.scale = newScale;
+  const after = toWorld(sx, sy);
+
+  // keep cursor anchored while zooming
+  view.x += (after.x - before.x) * view.scale;
+  view.y += (after.y - before.y) * view.scale;
+}, { passive: false });
 
 // ── Helpers ──
 function hexToRgba(hex, a) {
