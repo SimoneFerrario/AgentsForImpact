@@ -96,6 +96,27 @@
     .pipeline-view.active{display:flex}
     .swarm-view{display:none;flex:1;position:relative}
     .swarm-view.active{display:flex}
+
+    /* Monitor view (tab 3) */
+    .monitor-view{display:none;flex:1;flex-direction:column;overflow:hidden;background:var(--bg)}
+    .monitor-view.active{display:flex}
+    .monitor-header{padding:16px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+    .monitor-header h2{font-size:16px;font-weight:800;margin-bottom:2px}
+    .monitor-sub{font-size:11px;color:var(--muted)}
+    .monitor-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:20px;align-content:start}
+    @media(max-width:600px){.monitor-grid{grid-template-columns:1fr}}
+    .monitor-empty{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--dim);font-size:13px}
+    .agent-card{background:#0d0d18;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color .2s}
+    .agent-card:hover{border-color:var(--border2)}
+    .agent-card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid var(--border)}
+    .agent-card-name{font-size:13px;font-weight:700;flex:1}
+    .agent-card-status{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+    .agent-card-status.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+    .agent-card-status.offline{background:var(--red)}
+    .agent-card-status.connecting{background:var(--amber);animation:blink 1s infinite}
+    .agent-card-refresh{border:none;background:rgba(255,255,255,.05);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s}
+    .agent-card-refresh:hover{background:rgba(56,217,255,.12);color:var(--cyan)}
+    .agent-card-iframe{display:block;width:100%;height:300px;border:none;background:#000}
     .swarm-composer{position:absolute;left:16px;right:16px;bottom:14px;z-index:20;display:flex;gap:8px;background:rgba(8,14,24,.82);border:1px solid var(--border2);border-radius:12px;padding:10px;backdrop-filter:blur(8px)}
     .swarm-composer input{flex:1;padding:11px 12px;border-radius:10px;background:#0b1326;color:var(--text);border:1px solid var(--border);font-size:12px;outline:none}
     .swarm-composer input:focus{border-color:var(--cyan)}
@@ -174,6 +195,7 @@
 <div class="tab-bar">
   <div class="tab active" data-tab="swarm" onclick="switchTab('swarm')">🌐 Swarm Topology</div>
   <div class="tab" data-tab="pipeline" onclick="switchTab('pipeline')">⚡ Pipeline</div>
+  <div class="tab" id="tab-monitor" data-tab="monitor" onclick="switchTab('monitor')">🖥️ Live Monitor</div>
 </div>
 
 <!-- MAIN AREA -->
@@ -219,6 +241,17 @@
         <div class="result-card"><h3>🔬 Agent Trace</h3><div id="traceArea" style="max-height:250px;overflow-y:auto"><span style="color:var(--dim);font-size:11px">—</span></div></div>
         <div class="result-card"><h3>📜 History</h3><div id="historyArea" style="max-height:250px;overflow-y:auto"><span style="color:var(--dim);font-size:11px">—</span></div></div>
       </div>
+    </div>
+  </div>
+
+  <!-- MONITOR VIEW -->
+  <div class="monitor-view" id="monitorView">
+    <div class="monitor-header">
+      <h2>🖥️ Live Agent Terminals</h2>
+      <span class="monitor-sub">Embedded ttyd sessions — watch every agent in real time</span>
+    </div>
+    <div class="monitor-grid" id="monitorGrid">
+      <div class="monitor-empty" id="monitorEmpty">No agents with terminal access connected</div>
     </div>
   </div>
 
@@ -452,7 +485,13 @@ function wsProbe(node, timeoutMs=2200){
   });
 }
 
-function addNode(name, url, role, token) {
+// Known ttyd URLs for specific nodes
+const KNOWN_TTYD_URLS = {
+  'nemoclaw-1': 'https://broken-partly-principles-nicole.trycloudflare.com',
+  'nemoclaw-2': 'https://extra-milan-types-dependent.trycloudflare.com',
+};
+
+function addNode(name, url, role, token, ttydUrl) {
   // If first node is not master, auto-create a local master so topology is always visible
   if (nodes.length === 0 && role !== 'master') {
     addNode('Master Local', window.location.origin, 'master', '');
@@ -466,6 +505,12 @@ function addNode(name, url, role, token) {
   const x = W / 2 + Math.cos(angle) * dist;
   const y = H / 2 + Math.sin(angle) * dist;
 
+  // Resolve ttydUrl: explicit arg > known map > URL heuristic (trycloudflare.com:7681)
+  let resolvedTtydUrl = ttydUrl || KNOWN_TTYD_URLS[name] || null;
+  if (!resolvedTtydUrl && url && url.includes('trycloudflare.com') && url.includes(':7681')) {
+    resolvedTtydUrl = url;
+  }
+
   const node = {
     id, name, url: normalizeBaseUrl(url), role, token: token || '',
     status: 'connecting', x, y, vx: 0, vy: 0,
@@ -476,7 +521,8 @@ function addNode(name, url, role, token) {
     pulsePhase: Math.random() * Math.PI * 2,
     spawnTime: Date.now(),
     alpha: 0,  // fade in
-    lastWarnAt: 0
+    lastWarnAt: 0,
+    ttydUrl: resolvedTtydUrl,
   };
   nodes.push(node);
   if (!workloadByNode[id]) workloadByNode[id] = { units: 0, tasks: 0 };
@@ -654,7 +700,7 @@ function loadNodes() {
     .then(data => {
       (data.nodes || []).forEach(n => {
         if (!nodes.find(x => x.url === n.url)) {
-          addNode(n.name, n.url, n.role || 'slave', '');
+          addNode(n.name, n.url, n.role || 'slave', '', n.ttydUrl || null);
           logEvent('info', `Auto-registered: ${n.name} (${n.url})`);
         }
       });
@@ -1198,8 +1244,48 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.getElementById('swarmView').classList.toggle('active', tab === 'swarm');
   document.getElementById('pipelineView').classList.toggle('active', tab === 'pipeline');
+  document.getElementById('monitorView').classList.toggle('active', tab === 'monitor');
   // Always recalc canvas size after tab switch (fixes blank canvas)
   requestAnimationFrame(()=>{ resize(); layoutNodes(); });
+  if (tab === 'monitor') renderMonitor();
+}
+
+function renderMonitor() {
+  const grid = document.getElementById('monitorGrid');
+  const empty = document.getElementById('monitorEmpty');
+  // Get nodes with a ttydUrl
+  const termNodes = nodes.filter(n => n.ttydUrl);
+  // Remove old cards (keep empty placeholder)
+  grid.querySelectorAll('.agent-card').forEach(el => el.remove());
+  if (termNodes.length === 0) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  termNodes.forEach(node => {
+    const statusClass = node.status === 'online' ? 'online' : node.status === 'offline' ? 'offline' : 'connecting';
+    const card = document.createElement('div');
+    card.className = 'agent-card';
+    card.id = 'monitor-card-' + node.id;
+    card.innerHTML = `
+      <div class="agent-card-header">
+        <div class="agent-card-status ${statusClass}"></div>
+        <div class="agent-card-name">${node.name}</div>
+        <button class="agent-card-refresh" onclick="refreshMonitorCard('${node.id}')" title="Reload terminal">↺ Refresh</button>
+      </div>
+      <iframe class="agent-card-iframe" id="monitor-iframe-${node.id}" src="${node.ttydUrl}" sandbox="allow-scripts allow-same-origin allow-forms allow-modals" allow="clipboard-read; clipboard-write" loading="lazy"></iframe>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function refreshMonitorCard(nodeId) {
+  const iframe = document.getElementById('monitor-iframe-' + nodeId);
+  if (iframe) {
+    const src = iframe.src;
+    iframe.src = '';
+    setTimeout(() => { iframe.src = src; }, 100);
+  }
 }
 
 function toggleSidePanel() {
