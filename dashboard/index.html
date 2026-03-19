@@ -1957,34 +1957,70 @@ async function runPipeline() {
   setFlowState('classifier', 'running', '...');
   setTimeout(() => { setFlowState('researcher', 'running', '...'); setFlowState('strategist', 'running', '...'); }, 1500);
 
-  // Find first online node to send to
+  // Find first online node for fallback
   const target = nodes.find(n => n.status === 'online') || { url: window.location.origin };
 
+  let j = null;
+  let usedBridge = false;
+
   try {
-    const r = await fetch(target.url.replace(/\/$/, '') + '/api/pipeline', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task })
+    // Route through Kaji (OpenClaw bridge) first
+    const bridgeRes = await fetch('http://localhost:8081/tools/ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Omi-Token': 'oc_kA1T0qQn_7hrvwRBgFtnJoI8DWKY8zXtE6iB6m8bRDE'
+      },
+      body: JSON.stringify({ request: task, uid: 'saichi', callback_url: null })
     });
-    const j = await r.json();
+    const bridgeData = await bridgeRes.json();
+    const result = bridgeData.result || 'No response';
+    usedBridge = true;
+
     taskCount++;
     updateKPIs();
 
-    (j.agents || []).forEach(a => {
-      setFlowState(a.role, a.error ? 'error' : 'done', a.latency_ms ? a.latency_ms + 'ms' : 'err');
-    });
+    // Mark all flow states done (bridge handles internally)
+    ['classifier', 'researcher', 'strategist'].forEach(role => setFlowState(role, 'done', '✓'));
 
-    document.getElementById('resultArea').innerHTML = formatResult(j.final_answer || 'No response.');
-    renderTrace(j.agents || []);
-    logEvent('success', `Pipeline complete: "${task.slice(0, 40)}..." (${j.total_ms}ms)`);
+    document.getElementById('resultArea').innerHTML = formatResult(result);
+    // Create synthetic agent trace for display
+    renderTrace([{ role: 'orchestrator', data: result, latency_ms: null, model: 'kaji/bridge' }]);
+    logEvent('success', `[Kaji] Pipeline complete: "${task.slice(0, 40)}..."`);
 
     // Burst on master node
     const master = nodes.find(n => n.role === 'master');
     if (master) { for (let i = 0; i < 12; i++) spawnBurst(master.x, master.y, C.nvidia); }
 
-    loadHistory(target.url);
-  } catch (e) {
-    document.getElementById('resultArea').innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
-    logEvent('error', `Pipeline failed: ${e.message}`);
+  } catch (bridgeErr) {
+    // Fallback: route directly to nemoclaw node
+    logEvent('warn', `Bridge unreachable (${bridgeErr.message}), falling back to nemoclaw...`);
+    try {
+      const r = await fetch(target.url.replace(/\/$/, '') + '/api/pipeline', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task })
+      });
+      j = await r.json();
+      taskCount++;
+      updateKPIs();
+
+      (j.agents || []).forEach(a => {
+        setFlowState(a.role, a.error ? 'error' : 'done', a.latency_ms ? a.latency_ms + 'ms' : 'err');
+      });
+
+      document.getElementById('resultArea').innerHTML = formatResult(j.final_answer || 'No response.');
+      renderTrace(j.agents || []);
+      logEvent('success', `[Fallback] Pipeline complete: "${task.slice(0, 40)}..." (${j.total_ms}ms)`);
+
+      // Burst on master node
+      const master = nodes.find(n => n.role === 'master');
+      if (master) { for (let i = 0; i < 12; i++) spawnBurst(master.x, master.y, C.nvidia); }
+
+      loadHistory(target.url);
+    } catch (e) {
+      document.getElementById('resultArea').innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+      logEvent('error', `Pipeline failed: ${e.message}`);
+    }
   }
 
   document.getElementById('runBtn').disabled = false;
