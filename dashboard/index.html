@@ -791,11 +791,8 @@ function saveNodes() {
   localStorage.setItem('afi_nodes', JSON.stringify(data));
 }
 function loadNodes() {
-  // Load from localStorage
-  try {
-    const data = JSON.parse(localStorage.getItem('afi_nodes') || '[]');
-    data.forEach(d => addNode(d.name, d.url, d.role, d.token));
-  } catch {}
+  // Clear stale localStorage nodes — source of truth is the bridge
+  localStorage.removeItem('afi_nodes');
 
   // Auto-fetch known Brev nodes from bridge
   // Refresh KNOWN_TTYD_URLS dynamically from bridge
@@ -811,7 +808,14 @@ function loadNodes() {
     .then(r => r.json())
     .then(data => {
       (data.nodes || []).forEach(n => {
-        if (!nodes.find(x => x.url === n.url)) {
+        if (n.ttydUrl) KNOWN_TTYD_URLS[n.name] = n.ttydUrl;
+        const existing = nodes.find(x => x.name === n.name || x.url === normalizeBaseUrl(n.url));
+        if (existing) {
+          // Update ttydUrl on existing node if missing
+          if (!existing.ttydUrl && n.ttydUrl) {
+            existing.ttydUrl = n.ttydUrl;
+          }
+        } else {
           addNode(n.name, n.url, n.role || 'slave', '', n.ttydUrl || null);
           logEvent('info', `Auto-registered: ${n.name} (${n.url})`);
         }
