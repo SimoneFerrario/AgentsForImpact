@@ -539,7 +539,16 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == "/api/status":
+        if self.path in ("/health", "/api/health", "/status"):
+            self._json(200, {
+                "status": "online",
+                "service": "agentsforimpact",
+                "instance_id": INSTANCE_ID,
+                "instance_name": INSTANCE_NAME,
+            })
+            return
+
+        if self.path == "/api/status": 
             self._json(200, {
                 "status": "online",
                 "instance_id": INSTANCE_ID,
@@ -581,8 +590,12 @@ class Handler(SimpleHTTPRequestHandler):
         # Serve dashboard
         if self.path == "/" or self.path == "/dashboard" or self.path == "/dashboard/":
             self.path = "/dashboard/index.html"
-        
-        return super().do_GET()
+
+        try:
+            return super().do_GET()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Browser/client disconnected while static file/error page was being sent
+            return
 
     def _json(self, code, data):
         try:
@@ -591,7 +604,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode())
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # Client disconnected mid-response; avoid noisy stack traces
             pass
 
