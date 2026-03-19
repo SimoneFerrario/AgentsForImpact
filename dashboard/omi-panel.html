@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NemoClaw / OpenClaw Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    background: #0f0f1a;
+    border-bottom: 1px solid #1e1e3a;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+
+  header .logo { font-size: 18px; }
+  header .title { color: #7c7cff; font-weight: bold; letter-spacing: 0.1em; }
+  header .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #666; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #333; }
+  header .dot.connected { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    background: #111;
+    overflow: hidden;
+  }
+
+  .panel {
+    background: #0d0d18;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .panel-header {
+    background: #12122a;
+    border-bottom: 1px solid #1e1e3a;
+    padding: 6px 14px;
+    font-size: 11px;
+    color: #5555aa;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .panel-header .indicator {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #333;
+  }
+  .panel-header .indicator.active { background: #00ff88; animation: pulse 1.5s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+  }
+
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: #1e1e3a; border-radius: 2px; }
+
+  /* Transcript panel */
+  .transcript-line {
+    margin-bottom: 4px;
+    animation: fadein 0.3s ease;
+  }
+  .transcript-line .ts { color: #333; font-size: 11px; margin-right: 8px; }
+  .transcript-line .text { color: #00e5ff; }
+  .transcript-line.partial .text { color: #007a8a; }
+
+  /* Agent panel */
+  .agent-entry {
+    margin-bottom: 14px;
+    animation: fadein 0.3s ease;
+  }
+  .agent-entry .label { color: #7c7cff; font-size: 11px; margin-bottom: 4px; }
+  .agent-entry .content { color: #c8c8e8; white-space: pre-wrap; word-break: break-word; }
+
+  /* Terminal panel */
+  #terminal-panel .panel-body {
+    background: #050510;
+    font-size: 12px;
+  }
+  .terminal-line { color: #00ff88; margin-bottom: 2px; word-break: break-all; }
+  .terminal-line.err { color: #ff4466; }
+  .terminal-line.sys { color: #5555aa; }
+  .terminal-prompt { color: #5555aa; }
+
+  /* Status panel */
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #1a1a2e;
+    font-size: 12px;
+    animation: fadein 0.3s ease;
+  }
+  .status-item:last-child { border-bottom: none; }
+  .status-item .key { color: #5555aa; width: 140px; flex-shrink: 0; }
+  .status-item .val { color: #c8c8e8; }
+  .status-item .badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: bold;
+  }
+  .badge.ok { background: #003322; color: #00ff88; }
+  .badge.err { background: #330011; color: #ff4466; }
+  .badge.warn { background: #332200; color: #ffaa00; }
+
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .empty-hint {
+    color: #2a2a4a;
+    font-size: 12px;
+    text-align: center;
+    margin-top: 40px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🦞</span>
+  <span class="title">OPENCLAW // DEMO</span>
+  <div class="status">
+    <div class="dot" id="ws-dot"></div>
+    <span id="ws-label">disconnected</span>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- Panel 1: Live Transcript -->
+  <div class="panel" id="transcript-panel">
+    <div class="panel-header">
+      <div class="indicator" id="transcript-indicator"></div>
+      🎙️ Live Transcript (Omi)
+    </div>
+    <div class="panel-body" id="transcript-body">
+      <div class="empty-hint">Waiting for audio input...</div>
+    </div>
+  </div>
+
+  <!-- Panel 2: Agent Response -->
+  <div class="panel" id="agent-panel">
+    <div class="panel-header">
+      <div class="indicator" id="agent-indicator"></div>
+      🤖 Agent Response
+    </div>
+    <div class="panel-body" id="agent-body">
+      <div class="empty-hint">Waiting for requests...</div>
+    </div>
+  </div>
+
+  <!-- Panel 3: Terminal (Brev/VNC embed placeholder) -->
+  <div class="panel" id="terminal-panel">
+    <div class="panel-header">
+      <div class="indicator" id="terminal-indicator"></div>
+      💻 Terminal (Brev)
+    </div>
+    <div class="panel-body" id="terminal-body">
+      <div class="terminal-line sys">// Embed Brev VNC here or pipe terminal output via WebSocket</div>
+      <div class="terminal-line sys">// endpoint: ws://&lt;bridge&gt;/ws → type:terminal events</div>
+      <br>
+      <div class="terminal-line">ubuntu@nemoclaw-box:~$ <span id="cursor">▌</span></div>
+    </div>
+  </div>
+
+  <!-- Panel 4: System Status -->
+  <div class="panel" id="status-panel">
+    <div class="panel-header">
+      <div class="indicator active"></div>
+      📊 Status
+    </div>
+    <div class="panel-body" id="status-body">
+      <div class="status-item">
+        <span class="key">Bridge</span>
+        <span class="badge" id="s-bridge">checking...</span>
+      </div>
+      <div class="status-item">
+        <span class="key">OpenClaw Gateway</span>
+        <span class="badge" id="s-openclaw">checking...</span>
+      </div>
+      <div class="status-item">
+        <span class="key">WebSocket</span>
+        <span class="badge" id="s-ws">disconnected</span>
+      </div>
+      <div class="status-item">
+        <span class="key">Transcript Events</span>
+        <span class="val" id="s-transcript-count">0</span>
+      </div>
+      <div class="status-item">
+        <span class="key">Agent Events</span>
+        <span class="val" id="s-agent-count">0</span>
+      </div>
+      <div class="status-item">
+        <span class="key">Last Event</span>
+        <span class="val" id="s-last-event">—</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // --- Config ---
+  // Auto-detect bridge URL from current page origin, or override here
+  const BRIDGE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? `ws://${window.location.host}/ws`
+    : `wss://${window.location.host}/ws`;
+
+  let transcriptCount = 0;
+  let agentCount = 0;
+
+  // --- WebSocket ---
+  function connect() {
+    const ws = new WebSocket(BRIDGE_URL);
+
+    ws.onopen = () => {
+      document.getElementById('ws-dot').classList.add('connected');
+      document.getElementById('ws-label').textContent = 'connected';
+      document.getElementById('s-ws').className = 'badge ok';
+      document.getElementById('s-ws').textContent = 'connected';
+      // Keep-alive ping
+      setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 25000);
+    };
+
+    ws.onclose = () => {
+      document.getElementById('ws-dot').classList.remove('connected');
+      document.getElementById('ws-label').textContent = 'disconnected';
+      document.getElementById('s-ws').className = 'badge err';
+      document.getElementById('s-ws').textContent = 'disconnected';
+      setTimeout(connect, 2000); // auto-reconnect
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        handleMessage(msg);
+      } catch {}
+    };
+  }
+
+  function handleMessage(msg) {
+    document.getElementById('s-last-event').textContent = new Date().toLocaleTimeString();
+
+    if (msg.type === 'transcript') {
+      transcriptCount++;
+      document.getElementById('s-transcript-count').textContent = transcriptCount;
+      document.getElementById('transcript-indicator').classList.add('active');
+      addTranscript(msg.ts, msg.text);
+      setTimeout(() => document.getElementById('transcript-indicator').classList.remove('active'), 800);
+    }
+
+    if (msg.type === 'agent') {
+      agentCount++;
+      document.getElementById('s-agent-count').textContent = agentCount;
+      document.getElementById('agent-indicator').classList.add('active');
+      addAgent(msg.ts, msg.text);
+      setTimeout(() => document.getElementById('agent-indicator').classList.remove('active'), 2000);
+    }
+
+    if (msg.type === 'terminal') {
+      addTerminal(msg.text, msg.level || 'out');
+    }
+  }
+
+  function addTranscript(ts, text) {
+    const body = document.getElementById('transcript-body');
+    const empty = body.querySelector('.empty-hint');
+    if (empty) empty.remove();
+
+    const el = document.createElement('div');
+    el.className = 'transcript-line';
+    el.innerHTML = `<span class="ts">${ts}</span><span class="text">${escHtml(text)}</span>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function addAgent(ts, text) {
+    const body = document.getElementById('agent-body');
+    const empty = body.querySelector('.empty-hint');
+    if (empty) empty.remove();
+
+    const el = document.createElement('div');
+    el.className = 'agent-entry';
+    el.innerHTML = `<div class="label">[ ${ts} ] KAJI</div><div class="content">${escHtml(text)}</div>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function addTerminal(text, level) {
+    const body = document.getElementById('terminal-body');
+    const el = document.createElement('div');
+    el.className = `terminal-line ${level === 'err' ? 'err' : ''}`;
+    el.textContent = text;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // --- Health check ---
+  async function checkHealth() {
+    try {
+      const r = await fetch('/health');
+      const d = await r.json();
+      document.getElementById('s-bridge').className = 'badge ok';
+      document.getElementById('s-bridge').textContent = 'ok';
+      document.getElementById('s-openclaw').className = d.openclaw_connected ? 'badge ok' : 'badge err';
+      document.getElementById('s-openclaw').textContent = d.openclaw_connected ? 'connected' : 'disconnected';
+    } catch {
+      document.getElementById('s-bridge').className = 'badge err';
+      document.getElementById('s-bridge').textContent = 'unreachable';
+    }
+  }
+
+  // Blinking cursor
+  setInterval(() => {
+    const c = document.getElementById('cursor');
+    if (c) c.style.opacity = c.style.opacity === '0' ? '1' : '0';
+  }, 500);
+
+  connect();
+  checkHealth();
+  setInterval(checkHealth, 10000);
+</script>
+</body>
+</html>
