@@ -240,19 +240,29 @@
       <div style="padding:20px;text-align:center;color:var(--dim);font-size:12px">No nodes connected.<br>Click <b>＋ Connect Node</b> to add one.</div>
     </div>
 
-    <!-- Workload split -->
-    <div class="panel-section" style="padding-bottom:4px;flex-shrink:0">
-      <h3>🧮 Workload / Resource Split</h3>
-    </div>
-    <div class="workload-box" id="workloadBox">
-      <div style="color:var(--dim);font-size:11px">No tasks dispatched yet.</div>
+    <!-- Tabbed bottom: Log / Responses / Workload -->
+    <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div class="side-tab active" data-stab="log" onclick="switchSideTab('log')" style="flex:1;text-align:center;padding:6px;font-size:10px;font-weight:700;cursor:pointer;color:var(--cyan);border-bottom:2px solid var(--cyan);text-transform:uppercase;letter-spacing:.5px">📡 Log</div>
+      <div class="side-tab" data-stab="responses" onclick="switchSideTab('responses')" style="flex:1;text-align:center;padding:6px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.5px">💬 Responses</div>
+      <div class="side-tab" data-stab="workload" onclick="switchSideTab('workload')" style="flex:1;text-align:center;padding:6px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.5px">🧮 Load</div>
     </div>
 
-    <!-- Event log -->
-    <div class="panel-section" style="padding-bottom:4px;flex-shrink:0">
-      <h3>📡 Event Log</h3>
+    <!-- Log pane -->
+    <div class="side-pane active" id="pane-log" style="flex:1;overflow-y:auto">
+      <div class="event-log" id="eventLog"></div>
     </div>
-    <div class="event-log" id="eventLog"></div>
+
+    <!-- Responses pane -->
+    <div class="side-pane" id="pane-responses" style="flex:1;overflow-y:auto;display:none">
+      <div id="responsesBox" style="padding:8px 14px;font-size:11px;color:var(--dim)">No responses yet. Dispatch a task to see model outputs.</div>
+    </div>
+
+    <!-- Workload pane -->
+    <div class="side-pane" id="pane-workload" style="flex:1;overflow-y:auto;display:none">
+      <div class="workload-box" id="workloadBox">
+        <div style="color:var(--dim);font-size:11px;padding:8px">No tasks dispatched yet.</div>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -344,6 +354,8 @@ let animFrame;
 let taskCount = 0;
 let workloadByNode = {}; // nodeId -> {units, tasks}
 let lastDispatch = null;
+let nodeWorkingUntil = {}; // nodeId -> timestamp (for animated "working" ring)
+let lastResponses = []; // [{nodeId, nodeName, text, ts}]
 
 // Colors
 const C = {
@@ -801,6 +813,22 @@ function drawNode(node, t) {
   ctx.lineWidth = isSelected ? 3 : 1.5;
   ctx.stroke();
 
+  // WORKING animation (dispatch in progress)
+  const isWorking = (nodeWorkingUntil[node.id] || 0) > Date.now();
+  if (isWorking) {
+    const wt = (Date.now() / 200) % (Math.PI * 2);
+    for (let k = 0; k < 3; k++) {
+      const a0 = wt + k * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 12 + k * 4, a0, a0 + Math.PI * 0.7);
+      ctx.strokeStyle = hexToRgba(C.nvidia, (0.7 - k * 0.15) * a);
+      ctx.lineWidth = 3 - k * 0.5;
+      ctx.stroke();
+    }
+    // emit sparks while working
+    if (Math.random() < 0.15) spawnBurst(node.x + (Math.random()-0.5)*r*2, node.y + (Math.random()-0.5)*r*2, C.nvidia);
+  }
+
   // Connecting spinner ring
   if (node.status === 'connecting') {
     const a0 = (Date.now() / 280) % (Math.PI * 2);
@@ -838,10 +866,12 @@ function drawNode(node, t) {
   ctx.fillStyle = hexToRgba(C.text, 0.9 * a);
   ctx.fillText(node.name, node.x, node.y + r + 14);
 
-  // Role label
+  // Role + status label
+  const statusLabel = (nodeWorkingUntil[node.id] || 0) > Date.now() ? '⟡ WORKING' : node.status.toUpperCase();
+  const statusLabelColor = (nodeWorkingUntil[node.id] || 0) > Date.now() ? C.nvidia : (node.status === 'online' ? C.green : (node.status === 'connecting' ? C.amber : C.red));
   ctx.font = '600 9px "JetBrains Mono"';
-  ctx.fillStyle = hexToRgba(node.color, 0.7 * a);
-  ctx.fillText(node.role.toUpperCase(), node.x, node.y + r + 26);
+  ctx.fillStyle = hexToRgba(statusLabelColor, 0.8 * a);
+  ctx.fillText(`${node.role.toUpperCase()} • ${statusLabel}`, node.x, node.y + r + 26);
 
   // Draw agent satellites
   if (node.agents.length > 0 && node.status === 'online') {
@@ -1168,7 +1198,8 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.getElementById('swarmView').classList.toggle('active', tab === 'swarm');
   document.getElementById('pipelineView').classList.toggle('active', tab === 'pipeline');
-  if (tab === 'swarm') resize();
+  // Always recalc canvas size after tab switch (fixes blank canvas)
+  requestAnimationFrame(()=>{ resize(); layoutNodes(); });
 }
 
 function toggleSidePanel() {
@@ -1362,6 +1393,45 @@ function logEvent(level, msg) {
 
 function esc(t) { return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+let activeSideTab = 'log';
+function switchSideTab(tab) {
+  activeSideTab = tab;
+  document.querySelectorAll('.side-tab').forEach(t => {
+    const active = t.dataset.stab === tab;
+    t.style.color = active ? 'var(--cyan)' : 'var(--muted)';
+    t.style.borderBottomColor = active ? 'var(--cyan)' : 'transparent';
+    t.classList.toggle('active', active);
+  });
+  ['log','responses','workload'].forEach(p => {
+    const el = document.getElementById('pane-'+p);
+    if(el) el.style.display = p === tab ? 'block' : 'none';
+  });
+  if (tab === 'responses') renderSideTab();
+}
+
+function renderSideTab() {
+  const box = document.getElementById('responsesBox');
+  if (!box) return;
+  if (!lastResponses.length) {
+    box.innerHTML = '<div style="color:var(--dim);font-size:11px;padding:6px">No responses yet. Dispatch a task to see model outputs.</div>';
+    return;
+  }
+  box.innerHTML = lastResponses.map(r => `
+    <div style="margin-bottom:10px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-weight:700;font-size:11px;color:var(--cyan)">${esc(r.nodeName)}</span>
+        <span style="font-size:9px;color:var(--dim)">${r.ts} • ${r.latency}ms</span>
+      </div>
+      <div style="font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(typeof r.text === 'string' ? r.text : JSON.stringify(r.text,null,2))}</div>
+    </div>
+  `).join('');
+  // Flash the responses tab if not active
+  if (activeSideTab !== 'responses') {
+    const tab = document.querySelector('[data-stab="responses"]');
+    if (tab) { tab.style.color = 'var(--green)'; setTimeout(()=>{ if(activeSideTab!=='responses') tab.style.color = 'var(--muted)'; }, 2000); }
+  }
+}
+
 async function dispatchSwarmTask() {
   const input = document.getElementById('swarmTaskInput');
   const status = document.getElementById('swarmStatus');
@@ -1395,8 +1465,11 @@ async function dispatchSwarmTask() {
     workloadByNode[n.id].units += units;
     workloadByNode[n.id].tasks += 1;
 
-    // visual effect on selected node and links
-    for (let k = 0; k < 8; k++) spawnBurst(n.x, n.y, n.color);
+    // Mark node as "working" with animated ring for at least 8s
+    nodeWorkingUntil[n.id] = Date.now() + 8000;
+
+    // visual effect on node and links
+    for (let k = 0; k < 12; k++) spawnBurst(n.x, n.y, n.color);
     connections.filter(c => c.from === n.id || c.to === n.id).forEach(c => {
       linkBursts.push({ from: c.from, to: c.to, life: 1.0, color: n.color });
     });
@@ -1408,24 +1481,46 @@ async function dispatchSwarmTask() {
       headers['X-OpenClaw-Token'] = n.token;
     }
 
-    const body = { role: 'executor', message: `Distributed work package #${i + 1}/${online.length}: ${subTask}` };
+    const body = { task: task, role: 'executor', message: `Distributed work package #${i + 1}/${online.length}: ${subTask}` };
 
-    try {
-      const r = await fetch(base + '/api/agent', { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      logEvent('success', `${n.name} processed package ${i + 1} (${j.latency_ms || '?'}ms)`);
-      return { node: n.name, ok: true, latency: j.latency_ms || 0 };
-    } catch (e) {
-      logEvent('warn', `${n.name} no /api/agent (${e.message}) → counted as delegated`);
-      return { node: n.name, ok: false, latency: 0 };
+    // Try /api/pipeline first, then /api/agent
+    let result = null;
+    for (const ep of ['/api/pipeline', '/api/agent']) {
+      try {
+        const r = await fetch(base + ep, { method: 'POST', headers, body: JSON.stringify(body) });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const responseText = j.final_answer || j.data || j.raw || JSON.stringify(j);
+        logEvent('success', `${n.name} done via ${ep} (${j.latency_ms || j.total_ms || '?'}ms)`);
+        result = { node: n.name, nodeId: n.id, ok: true, latency: j.latency_ms || j.total_ms || 0, response: responseText };
+        break;
+      } catch (e) { /* try next */ }
     }
+
+    // Clear working state
+    nodeWorkingUntil[n.id] = Date.now() + 1200; // brief linger
+    // Done burst
+    for (let k = 0; k < 6; k++) spawnBurst(n.x, n.y, C.green);
+
+    if (!result) {
+      logEvent('warn', `${n.name} — no response endpoint available`);
+      result = { node: n.name, nodeId: n.id, ok: false, latency: 0, response: '' };
+    }
+    return result;
   });
 
   const results = await Promise.all(promises);
   const ok = results.filter(r => r.ok).length;
-  status.textContent = `Distributed: ${online.length} nodes • ${ok} executed • ${online.length - ok} delegated`;
+  status.textContent = `Done: ${online.length} nodes • ${ok} executed • ${online.length - ok} delegated`;
   logEvent('info', `Task split complete: ${ok}/${online.length} nodes executed`);
+
+  // Store responses for side panel
+  results.forEach(r => {
+    if (r.response) lastResponses.unshift({ nodeId: r.nodeId, nodeName: r.node, text: typeof r.response === 'string' ? r.response : JSON.stringify(r.response), ts: new Date().toLocaleTimeString(), latency: r.latency });
+  });
+  while (lastResponses.length > 30) lastResponses.pop();
+  renderSideTab();
+
   updateKPIs();
   input.value = '';
 }
