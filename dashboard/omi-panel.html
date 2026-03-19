@@ -211,8 +211,8 @@
       <div style="display:flex;gap:6px;align-items:center">
         <select id="vnc-target" onchange="loadVNC()" style="background:#050510;color:#5555aa;border:1px solid #1e1e3a;border-radius:4px;font-size:10px;padding:2px 6px;font-family:'Courier New',monospace">
           <option value="">— select instance —</option>
-          <option value="nemoclaw-1">nemoclaw-1</option>
-          <option value="nemoclaw-2">nemoclaw-2</option>
+          <option value="https://broken-partly-principles-nicole.trycloudflare.com">nemoclaw-1</option>
+          <option value="https://extra-milan-types-dependent.trycloudflare.com">nemoclaw-2</option>
         </select>
         <button onclick="loadVNC()" style="background:#12122a;border:1px solid #1e1e3a;color:#5555aa;font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer">↺</button>
       </div>
@@ -459,10 +459,8 @@
 
     document.getElementById('terminal-indicator').classList.add('active');
 
-    // Try noVNC URL first (Brev exposes it on port 6080)
-    // Fall back to log streaming via WebSocket
-    const brevVncUrl = `/api/vnc/${target}`;
-    frame.src = brevVncUrl;
+    // Direct ttyd tunnel URL
+    frame.src = target;
     frame.style.display = 'block';
     placeholder.style.display = 'none';
     termBody.style.display = 'none';
