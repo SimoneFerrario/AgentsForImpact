@@ -630,10 +630,24 @@ function saveNodes() {
   localStorage.setItem('afi_nodes', JSON.stringify(data));
 }
 function loadNodes() {
+  // Load from localStorage
   try {
     const data = JSON.parse(localStorage.getItem('afi_nodes') || '[]');
     data.forEach(d => addNode(d.name, d.url, d.role, d.token));
   } catch {}
+
+  // Auto-fetch known Brev nodes from bridge
+  fetch('http://localhost:8081/api/nodes')
+    .then(r => r.json())
+    .then(data => {
+      (data.nodes || []).forEach(n => {
+        if (!nodes.find(x => x.url === n.url)) {
+          addNode(n.name, n.url, n.role || 'slave', '');
+          logEvent('info', `Auto-registered: ${n.name} (${n.url})`);
+        }
+      });
+    })
+    .catch(() => {}); // silent fail if bridge not running
 }
 
 // ── Particles ──
