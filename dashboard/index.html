@@ -378,7 +378,7 @@ function addNode(name, url, role, token) {
   }
 
   const id = 'n' + (++nodeSeq);
-  // Position: master at center, others in orbit
+  // Position: temporary, then full layoutNodes() will rebalance
   const isMaster = role === 'master';
   const angle = (nodes.length * 2.3) + Math.random() * 0.5;
   const dist = isMaster ? 0 : 160 + Math.random() * 80;
@@ -416,6 +416,7 @@ function addNode(name, url, role, token) {
   setInterval(() => pollNodeHealth(id), 5000);
 
   logEvent('info', `Node "${name}" added (${role}) → ${url}`);
+  layoutNodes();
   saveNodes();
   updateKPIs();
   renderNodeList();
@@ -426,10 +427,30 @@ function removeNode(id) {
   const idx = nodes.findIndex(n => n.id === id);
   if (idx < 0) return;
   const node = nodes[idx];
+
+  // removal burst
+  for (let i = 0; i < 12; i++) spawnBurst(node.x, node.y, '#ff5c5c');
+
   nodes.splice(idx, 1);
   connections = connections.filter(c => c.from !== id && c.to !== id);
   logEvent('warn', `Node "${node.name}" removed`);
   if (selectedNodeId === id) selectedNodeId = null;
+
+  // auto-ensure at least one master if there are nodes left
+  if (nodes.length > 0 && !nodes.some(n => n.role === 'master')) {
+    const first = nodes[0];
+    first.role = 'master';
+    first.color = roleColors['master'];
+    first.radius = 40;
+    logEvent('info', `Promoted "${first.name}" as new MASTER`);
+    nodes.filter(n => n.id !== first.id).forEach(n => {
+      if (!connections.some(c => c.from === first.id && c.to === n.id)) {
+        connections.push({ from: first.id, to: n.id, particles: [], active: true, alpha: 0, spawnTime: Date.now() });
+      }
+    });
+  }
+
+  layoutNodes();
   saveNodes();
   updateKPIs();
   renderNodeList();
@@ -846,8 +867,34 @@ function render() {
   animFrame = requestAnimationFrame(render);
 }
 
+function layoutNodes() {
+  const cx = W / 2, cy = H / 2;
+  const masters = nodes.filter(n => n.role === 'master');
+  const others = nodes.filter(n => n.role !== 'master');
+
+  // masters close to center
+  masters.forEach((m, i) => {
+    const ang = (i / Math.max(1, masters.length)) * Math.PI * 2;
+    const d = masters.length > 1 ? 60 : 0;
+    m.targetX = cx + Math.cos(ang) * d;
+    m.targetY = cy + Math.sin(ang) * d;
+    m.radius = 40;
+    m.color = roleColors['master'];
+  });
+
+  // non-master nodes on outer ring
+  others.forEach((n, i) => {
+    const ang = (i / Math.max(1, others.length)) * Math.PI * 2;
+    const d = 220 + (i % 2) * 40;
+    n.targetX = cx + Math.cos(ang) * d;
+    n.targetY = cy + Math.sin(ang) * d;
+    n.radius = 28;
+    n.color = roleColors[n.role] || C.green;
+  });
+}
+
 function applyForces() {
-  // Simple force-directed layout
+  // Simple force-directed layout + attraction to targets
   for (let i = 0; i < nodes.length; i++) {
     const a = nodes[i];
     // Repulsion between nodes
@@ -865,10 +912,11 @@ function applyForces() {
       }
     }
 
-    // Attraction to center (gentle)
-    const cx = W / 2, cy = H / 2;
-    a.vx += (cx - a.x) * 0.0003;
-    a.vy += (cy - a.y) * 0.0003;
+    // Attraction to target position (layout reacts on add/remove)
+    const tx = a.targetX ?? (W / 2);
+    const ty = a.targetY ?? (H / 2);
+    a.vx += (tx - a.x) * 0.003;
+    a.vy += (ty - a.y) * 0.003;
 
     // Keep in bounds
     const margin = 80;
@@ -1225,6 +1273,7 @@ if(nodes.length===0){
   logEvent('info','Auto-adding local OpenClaw node (127.0.0.1:18789)');
   addNode('Local OpenClaw','http://127.0.0.1:18789','gateway','');
 }
+layoutNodes();
 render();
 updateKPIs();
 loadHistory();
