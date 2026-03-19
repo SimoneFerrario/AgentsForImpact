@@ -327,7 +327,7 @@ async def health_check():
 async def nemoclaw_status():
     """Poll each Brev instance's /api/status endpoint and return live health."""
     nodes = [
-        {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com"},
+        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com"},
     ]
     results = []
@@ -354,7 +354,7 @@ async def nemoclaw_status():
 async def get_nodes():
     """Return known agent nodes for auto-registration in the swarm UI."""
     return {"nodes": [
-        {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
+        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
         {"name": "nemoclaw-joe", "url": "https://administrators-trading-like-shanghai.trycloudflare.com", "role": "slave", "ttydUrl": "https://correctly-rock-produces-accessory.trycloudflare.com"},
     ]}
@@ -432,7 +432,7 @@ async def deploy_app(request: Request):
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
             r = await client.post(
-                "https://necessity-attraction-atmosphere-champion.trycloudflare.com/api/deploy",
+                "https://reveal-woods-jill-yamaha.trycloudflare.com/api/deploy",
                 json={"task": task}
             )
             return r.json()
