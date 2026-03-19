@@ -276,6 +276,15 @@ async def health_check():
     }
 
 
+@app.get("/api/nodes")
+async def get_nodes():
+    """Return known agent nodes for auto-registration in the swarm UI."""
+    return {"nodes": [
+        {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
+        {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
+    ]}
+
+
 @app.get("/")
 async def root():
     """Serve the 4-panel demo UI."""
