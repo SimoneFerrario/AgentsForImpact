@@ -180,6 +180,50 @@ async def ask_openclaw(
     if not verify_token(x_omi_token):
         raise HTTPException(status_code=401, detail="Invalid or missing token")
 
+    # Detect pipeline trigger keywords
+    trigger_keywords = ["start", "run pipeline", "analyze", "process", "execute task"]
+    if any(keyword in data.request.lower() for keyword in trigger_keywords):
+        logger.info(f"Detected pipeline trigger: {data.request}")
+
+        # Get orchestrator URL
+        orchestrator_url = os.getenv("ORCHESTRATOR_URL", "http://localhost:8080")
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                # Trigger main orchestrator pipeline
+                response = await client.post(
+                    f"{orchestrator_url}/api/pipeline",
+                    json={"task": data.request}
+                )
+
+                if response.status_code == 200:
+                    pipeline_result = response.json()
+                    final_answer = pipeline_result.get("final_answer", "No response")
+
+                    # Broadcast to dashboard
+                    await broadcast({
+                        "type": "pipeline",
+                        "result": final_answer,
+                        "ts": datetime.now().strftime("%H:%M:%S"),
+                        "agents": pipeline_result.get("agents", [])
+                    })
+
+                    # Send callback to Omi if provided
+                    if data.callback_url:
+                        await send_callback(data.callback_url, data.uid, final_answer, x_omi_token)
+                        return ToolResponse(result="Pipeline complete, result sent.", is_background=False)
+                    else:
+                        return ToolResponse(result=final_answer, is_background=False)
+                else:
+                    error_msg = f"Pipeline failed: {response.status_code}"
+                    logger.error(error_msg)
+                    return ToolResponse(result=error_msg, is_background=False)
+
+        except Exception as e:
+            logger.error(f"Pipeline trigger failed: {e}")
+            return ToolResponse(result=f"Error: {str(e)}", is_background=False)
+
+    # If not a pipeline trigger, proceed with normal OpenClaw forwarding
     # Create follow-up callback for embedded agent results
     followup_callback = None
     if data.callback_url:

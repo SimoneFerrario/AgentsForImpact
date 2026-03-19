@@ -250,6 +250,21 @@
       <h2>🖥️ Live Agent Terminals</h2>
       <span class="monitor-sub">Embedded ttyd sessions — watch every agent in real time</span>
     </div>
+    <!-- NemoClaw node health bar -->
+    <div id="nemoStatusBar" style="display:flex;gap:10px;padding:8px 20px;background:rgba(0,0,0,.25);border-bottom:1px solid var(--border);align-items:center;flex-shrink:0;flex-wrap:wrap">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-right:4px">NemoClaw Nodes</span>
+      <div id="nemoNode-nemoclaw-1" class="nemo-node-badge" style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border);font-size:11px">
+        <span class="nemo-dot" style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0"></span>
+        <span class="nemo-label">nemoclaw-1</span>
+        <span class="nemo-detail" style="color:var(--muted);font-size:10px;font-family:'JetBrains Mono',monospace">checking…</span>
+      </div>
+      <div id="nemoNode-nemoclaw-2" class="nemo-node-badge" style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border);font-size:11px">
+        <span class="nemo-dot" style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0"></span>
+        <span class="nemo-label">nemoclaw-2</span>
+        <span class="nemo-detail" style="color:var(--muted);font-size:10px;font-family:'JetBrains Mono',monospace">checking…</span>
+      </div>
+      <span id="nemoLastChecked" style="font-size:9px;color:var(--dim);margin-left:auto"></span>
+    </div>
     <div class="monitor-grid" id="monitorGrid">
       <div class="monitor-empty" id="monitorEmpty">No agents with terminal access connected</div>
     </div>
@@ -1239,6 +1254,45 @@ function hexToRgba(hex, a) {
 
 // Clock
 setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+// NemoClaw health polling
+async function pollNemoStatus() {
+  try {
+    const r = await fetch('http://localhost:8081/api/nemoclaw-status');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    (data.nodes || []).forEach(node => {
+      const el = document.getElementById('nemoNode-' + node.name);
+      if (!el) return;
+      const dot = el.querySelector('.nemo-dot');
+      const detail = el.querySelector('.nemo-detail');
+      if (node.status === 'online') {
+        dot.style.background = 'var(--green)';
+        dot.style.boxShadow = '0 0 6px var(--green)';
+        const d = node.detail || {};
+        detail.textContent = `✓ ${d.instance_name || 'online'} · ${d.pipeline_count ?? 0} tasks`;
+        detail.style.color = 'var(--green)';
+      } else {
+        dot.style.background = 'var(--red)';
+        dot.style.boxShadow = '0 0 6px var(--red)';
+        detail.textContent = 'offline';
+        detail.style.color = 'var(--red)';
+      }
+    });
+    const ts = document.getElementById('nemoLastChecked');
+    if (ts) ts.textContent = 'last checked ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    ['nemoclaw-1','nemoclaw-2'].forEach(name => {
+      const el = document.getElementById('nemoNode-' + name);
+      if (!el) return;
+      el.querySelector('.nemo-dot').style.background = 'var(--amber)';
+      el.querySelector('.nemo-detail').textContent = 'bridge unreachable';
+    });
+  }
+}
+// Poll immediately and every 10s
+pollNemoStatus();
+setInterval(pollNemoStatus, 10000);
 
 // Tabs
 function switchTab(tab) {

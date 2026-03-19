@@ -86,7 +86,8 @@ BREV_LOGS = []  # streaming log lines for /api/brev/logs
 import uuid, socket
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_NAME = os.environ.get("INSTANCE_NAME", socket.gethostname())
-NODE_REGISTRY = {}  # id -> {name, url, role, status, agents, last_seen}
+NODE_REGISTRY = {}  # id -> {name, url, role, status, agents, last_seen, metrics}
+# metrics: {active_requests, queue_depth, avg_latency_ms, load_score}
 
 def strip_think(text):
     if not text:
@@ -172,6 +173,77 @@ def call_agent(role, user_msg, timeout_s=60):
         return {"data": None, "raw": str(e), "latency_ms": elapsed, "model": model, "error": str(e)}
 
 
+def select_executor_node():
+    """Select best NemoClaw node based on load. Returns None if no nodes available."""
+    from datetime import datetime as dt
+
+    available_nodes = [
+        (nid, node) for nid, node in NODE_REGISTRY.items()
+        if node.get('status') == 'online'
+        and node.get('role') == 'executor'
+    ]
+
+    # Filter out stale nodes (no heartbeat in last 30s)
+    current_time = time.time()
+    fresh_nodes = []
+    for nid, node in available_nodes:
+        try:
+            last_seen_ts = dt.fromisoformat(node['last_seen']).timestamp()
+            if (current_time - last_seen_ts) < 30:
+                fresh_nodes.append((nid, node))
+        except:
+            pass
+
+    if not fresh_nodes:
+        return None
+
+    # Select node with lowest load score
+    best_nid, best_node = min(fresh_nodes,
+                               key=lambda x: x[1].get('metrics', {}).get('load_score', 999))
+
+    load_score = best_node.get('metrics', {}).get('load_score', 0)
+    print(f"  [ROUTING] Selected node {best_nid} ({best_node['name']}) load={load_score:.2f}")
+    return best_node
+
+
+def call_remote_executor(node, exec_msg, timeout_s=90):
+    """Call remote NemoClaw executor node."""
+    from urllib.request import Request, urlopen
+
+    payload = {
+        "task": exec_msg,
+        "context": {
+            "model": "nvidia/nemotron-3-super-120b-a12b",
+            "temperature": 0.7,
+            "max_tokens": 800
+        }
+    }
+
+    req = Request(
+        f"{node['url']}/execute",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"}
+    )
+
+    t0 = time.time()
+    try:
+        with urlopen(req, timeout=timeout_s) as resp:
+            body = json.loads(resp.read())
+            elapsed = round((time.time() - t0) * 1000)
+
+            return {
+                "data": body.get("result", "No response"),
+                "raw": body.get("result", "No response"),
+                "latency_ms": elapsed,
+                "model": "remote:" + node['name'],
+                "node_id": body.get('node_id', 'unknown')
+            }
+    except Exception as e:
+        elapsed = round((time.time() - t0) * 1000)
+        print(f"  [ROUTING] Remote executor failed: {e}, falling back to local")
+        return None
+
+
 def run_pipeline(task):
     """Run the full 4-agent pipeline."""
     print(f"\n{'='*60}")
@@ -242,13 +314,33 @@ STRATEGY:
 
 Now produce the final comprehensive response for the user. Be specific, actionable, and thorough."""
 
+    # Try remote execution first
+    selected_node = select_executor_node()
+    if selected_node:
+        exec_result = call_remote_executor(selected_node, exec_msg, 90)
+        if exec_result:
+            pipeline["agents"].append({"role": "executor", **exec_result})
+            pipeline["total_ms"] = round((time.time() - total_t0) * 1000)
+            pipeline["status"] = "complete"
+            pipeline["final_answer"] = exec_result.get("data", "No response generated.")
+            PIPELINE_LOG.append(pipeline)
+            if len(PIPELINE_LOG) > 50:
+                PIPELINE_LOG.pop(0)
+            print(f"\n{'='*60}")
+            print(f"  DONE in {pipeline['total_ms']}ms (remote)")
+            print(f"{'='*60}\n")
+            return pipeline
+        else:
+            print("  [ROUTING] Remote execution failed, falling back to local NVIDIA API")
+
+    # Fallback to local NVIDIA API
     exec_result = call_agent("executor", exec_msg, 90)
     pipeline["agents"].append({"role": "executor", **exec_result})
-    
+
     pipeline["total_ms"] = round((time.time() - total_t0) * 1000)
     pipeline["status"] = "complete"
     pipeline["final_answer"] = exec_result.get("data", "No response generated.")
-    
+
     PIPELINE_LOG.append(pipeline)
     if len(PIPELINE_LOG) > 50:
         PIPELINE_LOG.pop(0)
@@ -300,7 +392,13 @@ class Handler(SimpleHTTPRequestHandler):
                 "role": body.get("role", "slave"),
                 "status": "online",
                 "agents": body.get("agents", []),
-                "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S")
+                "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "metrics": body.get("metrics", {
+                    "active_requests": 0,
+                    "queue_depth": 0,
+                    "avg_latency_ms": 0,
+                    "load_score": 0.0
+                })
             }
             self._json(200, {"status": "registered", "node_id": nid})
             return
@@ -314,7 +412,25 @@ class Handler(SimpleHTTPRequestHandler):
                 NODE_REGISTRY[nid]["status"] = "online"
                 if "agents" in body:
                     NODE_REGISTRY[nid]["agents"] = body["agents"]
+                if "metrics" in body:
+                    NODE_REGISTRY[nid]["metrics"] = body["metrics"]
             self._json(200, {"status": "ok"})
+            return
+
+        if self.path == "/api/nodes/cleanup":
+            """Remove stale nodes (no heartbeat in 60s)."""
+            from datetime import datetime as dt
+            cutoff = time.time() - 60
+            stale = []
+            for nid, node in list(NODE_REGISTRY.items()):
+                try:
+                    last_seen_ts = dt.fromisoformat(node['last_seen']).timestamp()
+                    if last_seen_ts < cutoff:
+                        stale.append(nid)
+                        del NODE_REGISTRY[nid]
+                except:
+                    pass
+            self._json(200, {"removed": len(stale), "node_ids": stale})
             return
 
         if self.path == "/api/chat":
@@ -446,6 +562,21 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/history":
             self._json(200, {"pipelines": PIPELINE_LOG[-20:]})
             return
+
+        # Serve static files for NemoClaw setup
+        if self.path == "/static/nemoclaw-server.py":
+            try:
+                with open("nemoclaw-server.py", 'rb') as f:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/x-python")
+                    self._cors()
+                    self.end_headers()
+                    self.wfile.write(f.read())
+                return
+            except FileNotFoundError:
+                self.send_response(404)
+                self.end_headers()
+                return
 
         # Serve dashboard
         if self.path == "/" or self.path == "/dashboard" or self.path == "/dashboard/":
