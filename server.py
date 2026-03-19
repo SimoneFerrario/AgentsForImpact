@@ -80,6 +80,7 @@ Be specific, practical, and thorough.""",
 PIPELINE_LOG = []  # list of pipeline runs
 AGENT_STATS = {k: {"calls": 0, "total_ms": 0, "errors": 0, "last_active": None} for k in AGENTS}
 CHAT_HISTORY = {}
+BREV_LOGS = []  # streaming log lines for /api/brev/logs
 
 # ── Node Registry (multi-instance swarm) ──
 import uuid, socket
@@ -370,32 +371,48 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(400, {"error": "instanceName required"})
                 return
 
+            def brev_log(msg):
+                ts = time.strftime("%H:%M:%S")
+                BREV_LOGS.append(f"[{ts}] {msg}")
+                if len(BREV_LOGS) > 200:
+                    BREV_LOGS.pop(0)
+
             def run_brev():
                 try:
+                    brev_log(f"Starting brev create: {instance_name} ({instance_type}) on {provider}...")
                     result = subprocess.run(
                         ["brev", "create", instance_name, "--provider", provider,
                          "--min-disk", "256", "--type", instance_type],
                         capture_output=True, text=True, timeout=300
                     )
                     if result.returncode != 0:
-                        return {"error": result.stderr or result.stdout}
+                        err = result.stderr or result.stdout
+                        brev_log(f"ERROR creating instance: {err}")
+                        return {"error": err}
+
+                    brev_log(f"Instance '{instance_name}' created successfully")
 
                     # Run NemoClaw setup in background
                     setup_script = "/Users/saichi/Documents/AgentsForImpact/setup-nemoclaw.sh"
+                    brev_log(f"Starting NemoClaw setup on '{instance_name}'...")
                     subprocess.Popen(
                         ["brev", "exec", instance_name, f"@{setup_script}"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                     )
+                    brev_log(f"NemoClaw install running in background on '{instance_name}'")
                     return {
                         "instanceName": instance_name,
                         "setupStatus": "NemoClaw install started in background",
                         "url": None  # URL unknown until NemoClaw exposes endpoint
                     }
                 except subprocess.TimeoutExpired:
+                    brev_log(f"ERROR: Timed out creating instance '{instance_name}'")
                     return {"error": "Timed out creating instance"}
                 except FileNotFoundError:
+                    brev_log("ERROR: brev CLI not found — is it installed?")
                     return {"error": "brev CLI not found"}
                 except Exception as e:
+                    brev_log(f"ERROR: {e}")
                     return {"error": str(e)}
 
             result = run_brev()
@@ -420,6 +437,10 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/nodes":
             self._json(200, {"nodes": NODE_REGISTRY, "self": {"id": INSTANCE_ID, "name": INSTANCE_NAME}})
+            return
+
+        if self.path == "/api/brev/logs":
+            self._json(200, {"logs": list(BREV_LOGS)})
             return
 
         if self.path == "/api/history":

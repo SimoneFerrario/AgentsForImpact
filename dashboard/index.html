@@ -1216,6 +1216,34 @@ function connectNode() {
   document.getElementById('nodeToken').value = '';
 }
 
+let _brevLogPoller = null;
+
+function startBrevLogPolling() {
+  let lastLogCount = 0;
+  let staleTicks = 0;
+  const maxTicks = 30; // 60s at 2s interval
+  if (_brevLogPoller) clearInterval(_brevLogPoller);
+  _brevLogPoller = setInterval(async () => {
+    try {
+      const r = await fetch('/api/brev/logs');
+      const data = await r.json();
+      const logs = data.logs || [];
+      if (logs.length > lastLogCount) {
+        const newLines = logs.slice(lastLogCount);
+        newLines.forEach(line => logEvent('info', `[brev] ${line}`));
+        lastLogCount = logs.length;
+        staleTicks = 0;
+      } else {
+        staleTicks++;
+        if (staleTicks >= maxTicks) {
+          clearInterval(_brevLogPoller);
+          _brevLogPoller = null;
+        }
+      }
+    } catch {}
+  }, 2000);
+}
+
 async function createBrevNode() {
   const instanceName = document.getElementById('brevName').value.trim();
   const instanceType = document.getElementById('brevType').value;
@@ -1229,6 +1257,9 @@ async function createBrevNode() {
   closeConnectModal();
   logEvent('info', `⏳ Creating Brev instance "${instanceName}" (${instanceType})...`);
 
+  // Start polling brev logs immediately
+  startBrevLogPolling();
+
   try {
     const res = await fetch('/api/brev/create', {
       method: 'POST',
@@ -1239,6 +1270,7 @@ async function createBrevNode() {
 
     if (data.error) {
       logEvent('error', `✗ Brev "${instanceName}": ${data.error}`);
+      if (_brevLogPoller) { clearInterval(_brevLogPoller); _brevLogPoller = null; }
       return;
     }
 
@@ -1255,6 +1287,7 @@ async function createBrevNode() {
     }
   } catch (e) {
     logEvent('error', `✗ Brev create failed: ${e.message}`);
+    if (_brevLogPoller) { clearInterval(_brevLogPoller); _brevLogPoller = null; }
   }
 }
 
