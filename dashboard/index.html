@@ -1078,20 +1078,21 @@ function layoutNodes() {
   const masters = nodes.filter(n => n.role === 'master');
   const others = nodes.filter(n => n.role !== 'master');
 
-  // masters close to center
+  // masters near center (but not stacked)
   masters.forEach((m, i) => {
     const ang = (i / Math.max(1, masters.length)) * Math.PI * 2;
-    const d = masters.length > 1 ? 60 : 0;
+    const d = masters.length > 1 ? 90 : 0;
     m.targetX = cx + Math.cos(ang) * d;
     m.targetY = cy + Math.sin(ang) * d;
     m.radius = 40;
     m.color = roleColors['master'];
   });
 
-  // non-master nodes on outer ring
+  // non-master nodes on wider outer rings to avoid overlap
   others.forEach((n, i) => {
     const ang = (i / Math.max(1, others.length)) * Math.PI * 2;
-    const d = 220 + (i % 2) * 40;
+    const ring = Math.floor(i / 8); // new ring every 8 nodes
+    const d = 280 + ring * 110 + (i % 2) * 28;
     n.targetX = cx + Math.cos(ang) * d;
     n.targetY = cy + Math.sin(ang) * d;
     n.radius = 28;
@@ -1108,7 +1109,7 @@ function applyForces() {
       const b = nodes[j];
       const dx = b.x - a.x, dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const minDist = (a.radius + b.radius) * 3;
+      const minDist = (a.radius + b.radius) * 4.6;
       if (dist < minDist) {
         const force = (minDist - dist) / minDist * 0.5;
         const fx = (dx / dist) * force;
@@ -1456,12 +1457,34 @@ function renderNodeList() {
   `).join('');
 }
 
+function focusNodeInView(node) {
+  // Center selected node in viewport with smooth camera pan
+  const targetX = W / 2 - node.x * view.scale;
+  const targetY = H / 2 - node.y * view.scale;
+
+  const startX = view.x, startY = view.y;
+  const t0 = performance.now();
+  const dur = 380;
+
+  function step(now) {
+    const p = Math.min(1, (now - t0) / dur);
+    const ease = 1 - Math.pow(1 - p, 3);
+    view.x = startX + (targetX - startX) * ease;
+    view.y = startY + (targetY - startY) * ease;
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+
+  // highlight burst
+  for (let i = 0; i < 10; i++) spawnBurst(node.x, node.y, node.color);
+}
+
 function selectNode(id) {
   selectedNodeId = id;
+  switchTab('swarm');
   const node = nodes.find(n => n.id === id);
   if (node) {
-    // Pan canvas to center on this node (gentle)
-    // Just highlight for now
+    focusNodeInView(node);
   }
   renderNodeList();
 }
