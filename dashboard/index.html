@@ -1933,6 +1933,100 @@ function quickTest(task) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   OMI MODE — Voice-to-dispatch via bridge WebSocket
+   ═══════════════════════════════════════════════════════════════ */
+let omiWs = null;
+let omiActive = false;
+
+function toggleOmiMode() {
+  if (omiActive) {
+    stopOmiMode();
+  } else {
+    startOmiMode();
+  }
+}
+
+function startOmiMode() {
+  const bridgeWsUrl = 'ws://localhost:8081/ws';
+  try {
+    omiWs = new WebSocket(bridgeWsUrl);
+
+    omiWs.onopen = () => {
+      omiActive = true;
+      updateOmiUI(true);
+      logEvent('info', '🎙️ Omi Mode ON — connected to bridge, listening for wake word...');
+    };
+
+    omiWs.onmessage = (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch(e) { return; }
+
+      if (msg.type !== 'transcript' || !msg.text) return;
+
+      const text = msg.text;
+      const wakeMatch = text.match(/hey\s+open\s*claw\s+(.*)/i);
+      if (!wakeMatch) return;
+
+      const command = wakeMatch[1]
+        .replace(/\s*(thanks|thank you)[.\s]*$/i, '')
+        .trim();
+
+      if (!command) return;
+
+      // Log to event log
+      logEvent('info', `🎙️ Omi: ${command}`);
+
+      // Switch to pipeline tab and auto-dispatch
+      switchTab('pipeline');
+      const input = document.getElementById('taskInput');
+      if (input) {
+        input.value = command;
+        // Small delay so UI updates before submit
+        setTimeout(() => runPipeline(), 100);
+      }
+    };
+
+    omiWs.onerror = (err) => {
+      logEvent('error', '🎙️ Omi Mode: WebSocket error — is the bridge running at localhost:8081?');
+      stopOmiMode();
+    };
+
+    omiWs.onclose = () => {
+      if (omiActive) {
+        logEvent('warn', '🎙️ Omi Mode: Connection closed');
+        stopOmiMode();
+      }
+    };
+
+  } catch(e) {
+    logEvent('error', `🎙️ Omi Mode: Failed to connect — ${e.message}`);
+  }
+}
+
+function stopOmiMode() {
+  omiActive = false;
+  updateOmiUI(false);
+  if (omiWs) {
+    omiWs.onclose = null; // prevent recursive stopOmiMode
+    omiWs.close();
+    omiWs = null;
+  }
+  logEvent('info', '🎙️ Omi Mode OFF');
+}
+
+function updateOmiUI(active) {
+  const btn = document.getElementById('omiModeBtn');
+  const indicator = document.getElementById('omiListeningIndicator');
+  if (btn) {
+    btn.classList.toggle('omi-active', active);
+    btn.textContent = active ? '🎙️ Omi ON' : '🎙️ Omi Mode';
+  }
+  if (indicator) {
+    indicator.style.display = active ? 'inline-flex' : 'none';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    INIT
    ═══════════════════════════════════════════════════════════════ */
 resize();
