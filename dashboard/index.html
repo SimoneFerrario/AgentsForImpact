@@ -403,6 +403,7 @@ let taskCount = 0;
 let workloadByNode = {}; // nodeId -> {units, tasks}
 let lastDispatch = null;
 let nodeWorkingUntil = {}; // nodeId -> timestamp (for animated "working" ring)
+let nodeStreamingUntil = {}; // nodeId -> timestamp (moving dots while waiting response)
 let lastResponses = []; // [{nodeId, nodeName, text, ts}]
 
 // Colors
@@ -556,7 +557,6 @@ function addNode(name, url, role, token, ttydUrl) {
 
   // Start health polling
   pollNodeHealth(id);
-  setInterval(() => pollNodeHealth(id), 5000);
 
   logEvent('info', `Node "${name}" added (${role}) → ${url}`);
   layoutNodes();
@@ -723,6 +723,10 @@ function loadNodes() {
     .catch(() => {}); // silent fail if bridge not running
 }
 
+function pollAllNodesLive(){
+  nodes.forEach(n => pollNodeHealth(n.id));
+}
+
 // ── Particles ──
 function spawnBurst(x, y, color) {
   const angle = Math.random() * Math.PI * 2;
@@ -785,15 +789,16 @@ function drawConnection(conn, t) {
 
   conn.alpha = Math.min(1, conn.alpha + 0.02);
   const bothOnline = fromNode.status === 'online' && toNode.status === 'online';
-  const baseAlpha = bothOnline ? 0.4 : 0.1;
+  const activeStream = (nodeStreamingUntil[fromNode.id] || 0) > Date.now() || (nodeStreamingUntil[toNode.id] || 0) > Date.now();
+  const baseAlpha = activeStream ? 0.75 : (bothOnline ? 0.4 : 0.1);
 
   // Line
   ctx.beginPath();
   ctx.moveTo(fromNode.x, fromNode.y);
   ctx.lineTo(toNode.x, toNode.y);
-  ctx.strokeStyle = `rgba(56,217,255,${baseAlpha * conn.alpha})`;
-  ctx.lineWidth = bothOnline ? 2 : 1;
-  ctx.setLineDash(bothOnline ? [] : [4, 4]);
+  ctx.strokeStyle = activeStream ? `rgba(118,185,0,${baseAlpha * conn.alpha})` : `rgba(56,217,255,${baseAlpha * conn.alpha})`;
+  ctx.lineWidth = activeStream ? 3.2 : (bothOnline ? 2 : 1);
+  ctx.setLineDash(activeStream ? [2,4] : (bothOnline ? [] : [4, 4]));
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -808,7 +813,7 @@ function drawConnection(conn, t) {
   }
 
   // Particles along connection
-  if (bothOnline && Math.random() < 0.03) {
+  if ((bothOnline && Math.random() < 0.03) || (activeStream && Math.random() < 0.18)) {
     spawnConnectionParticle(conn);
   }
 
@@ -876,18 +881,21 @@ function drawNode(node, t) {
 
   // WORKING animation (dispatch in progress)
   const isWorking = (nodeWorkingUntil[node.id] || 0) > Date.now();
+  const isStreaming = (nodeStreamingUntil[node.id] || 0) > Date.now();
   if (isWorking) {
-    const wt = (Date.now() / 200) % (Math.PI * 2);
-    for (let k = 0; k < 3; k++) {
-      const a0 = wt + k * (Math.PI * 2 / 3);
+    const wt = (Date.now() / 170) % (Math.PI * 2);
+    for (let k = 0; k < 4; k++) {
+      const a0 = wt + k * (Math.PI * 2 / 4);
       ctx.beginPath();
-      ctx.arc(node.x, node.y, r + 12 + k * 4, a0, a0 + Math.PI * 0.7);
-      ctx.strokeStyle = hexToRgba(C.nvidia, (0.7 - k * 0.15) * a);
-      ctx.lineWidth = 3 - k * 0.5;
+      ctx.arc(node.x, node.y, r + 10 + k * 4, a0, a0 + Math.PI * 0.85);
+      ctx.strokeStyle = hexToRgba(C.nvidia, (0.8 - k * 0.14) * a);
+      ctx.lineWidth = 3.4 - k * 0.45;
       ctx.stroke();
     }
-    // emit sparks while working
-    if (Math.random() < 0.15) spawnBurst(node.x + (Math.random()-0.5)*r*2, node.y + (Math.random()-0.5)*r*2, C.nvidia);
+    if (Math.random() < 0.22) spawnBurst(node.x + (Math.random()-0.5)*r*2, node.y + (Math.random()-0.5)*r*2, C.nvidia);
+  }
+  if (isStreaming && Math.random() < 0.22) {
+    spawnBurst(node.x + (Math.random()-0.5)*r*1.5, node.y + (Math.random()-0.5)*r*1.5, C.cyan);
   }
 
   // Connecting spinner ring
@@ -928,8 +936,8 @@ function drawNode(node, t) {
   ctx.fillText(node.name, node.x, node.y + r + 14);
 
   // Role + status label
-  const statusLabel = (nodeWorkingUntil[node.id] || 0) > Date.now() ? '⟡ WORKING' : node.status.toUpperCase();
-  const statusLabelColor = (nodeWorkingUntil[node.id] || 0) > Date.now() ? C.nvidia : (node.status === 'online' ? C.green : (node.status === 'connecting' ? C.amber : C.red));
+  const statusLabel = isStreaming ? '●●● RESPONDING' : (isWorking ? '⟡ WORKING' : node.status.toUpperCase());
+  const statusLabelColor = isStreaming ? C.cyan : (isWorking ? C.nvidia : (node.status === 'online' ? C.green : (node.status === 'connecting' ? C.amber : C.red)));
   ctx.font = '600 9px "JetBrains Mono"';
   ctx.fillStyle = hexToRgba(statusLabelColor, 0.8 * a);
   ctx.fillText(`${node.role.toUpperCase()} • ${statusLabel}`, node.x, node.y + r + 26);
@@ -1193,6 +1201,7 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
@@ -1221,6 +1230,7 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
+window.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
 canvas.addEventListener('mouseleave', () => { dragNode = null; panMode = false; hoveredNodeId = null; });
 
 canvas.addEventListener('wheel', e => {
@@ -1230,14 +1240,16 @@ canvas.addEventListener('wheel', e => {
   const sy = e.clientY - rect.top;
 
   const before = toWorld(sx, sy);
-  const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-  const newScale = Math.min(2.2, Math.max(0.45, view.scale * zoomFactor));
-  view.scale = newScale;
-  const after = toWorld(sx, sy);
+  const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
+  const newScale = Math.min(2.6, Math.max(0.35, view.scale * zoomFactor));
 
-  // keep cursor anchored while zooming
-  view.x += (after.x - before.x) * view.scale;
-  view.y += (after.y - before.y) * view.scale;
+  // cursor-anchored zoom (stable)
+  view.scale = newScale;
+  view.x = sx - before.x * view.scale;
+  view.y = sy - before.y * view.scale;
+
+  const s = document.getElementById('swarmStatus');
+  if (s) s.textContent = `View: zoom ${(view.scale*100).toFixed(0)}% • nodes ${nodes.length}`;
 }, { passive: false });
 
 // ── Helpers ──
@@ -1628,8 +1640,9 @@ async function dispatchSwarmTask() {
     workloadByNode[n.id].units += units;
     workloadByNode[n.id].tasks += 1;
 
-    // Mark node as "working" with animated ring for at least 8s
-    nodeWorkingUntil[n.id] = Date.now() + 8000;
+    // Mark node as "working/streaming" with animated rings
+    nodeWorkingUntil[n.id] = Date.now() + 12000;
+    nodeStreamingUntil[n.id] = Date.now() + 12000;
 
     // visual effect on node and links
     for (let k = 0; k < 12; k++) spawnBurst(n.x, n.y, n.color);
@@ -1660,10 +1673,11 @@ async function dispatchSwarmTask() {
       } catch (e) { /* try next */ }
     }
 
-    // Clear working state
-    nodeWorkingUntil[n.id] = Date.now() + 1200; // brief linger
+    // Clear working state (keep brief finish animation)
+    nodeWorkingUntil[n.id] = Date.now() + 1800;
+    nodeStreamingUntil[n.id] = Date.now() + 900;
     // Done burst
-    for (let k = 0; k < 6; k++) spawnBurst(n.x, n.y, C.green);
+    for (let k = 0; k < 9; k++) spawnBurst(n.x, n.y, C.green);
 
     if (!result) {
       logEvent('warn', `${n.name} — no response endpoint available`);
@@ -1811,6 +1825,10 @@ layoutNodes();
 render();
 updateKPIs();
 loadHistory();
+
+// live machine status refresh
+setInterval(pollAllNodesLive, 3000);
+setTimeout(pollAllNodesLive, 600);
 </script>
 </body>
 </html>
