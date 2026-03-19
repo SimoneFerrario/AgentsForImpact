@@ -220,7 +220,7 @@
     <div id="vnc-container" style="flex:1;position:relative;background:#050510">
       <div id="vnc-placeholder" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#2a2a4a;font-size:12px;gap:8px">
         <div>Select an instance above to open terminal</div>
-        <div style="font-size:10px">Uses <code style="color:#3a3a6a">brev shell</code> via noVNC</div>
+        <div style="font-size:10px">Live via <code style="color:#3a3a6a">ttyd</code> + Cloudflare tunnel</div>
       </div>
       <iframe id="vnc-frame" src="" style="display:none;width:100%;height:100%;border:none"></iframe>
       <!-- Live terminal log fallback -->
@@ -459,18 +459,11 @@
 
     document.getElementById('terminal-indicator').classList.add('active');
 
-    // Direct ttyd tunnel URL
+    // Direct ttyd tunnel URL as iframe src
     frame.src = target;
     frame.style.display = 'block';
     placeholder.style.display = 'none';
     termBody.style.display = 'none';
-
-    frame.onerror = () => {
-      // noVNC not available — fall back to terminal log stream
-      frame.style.display = 'none';
-      termBody.style.display = 'block';
-      addTerminal(`[${target}] VNC not available — streaming logs via WebSocket`, 'sys');
-    };
   }
 
   connect();
