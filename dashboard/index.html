@@ -560,7 +560,7 @@ function wsProbe(node, timeoutMs=2200){
 
 // Known ttyd URLs for specific nodes
 const KNOWN_TTYD_URLS = {
-  'nemoclaw-1': 'https://broken-partly-principles-nicole.trycloudflare.com',
+  'nemoclaw-1': 'https://upgrade-playback-hear-chef.trycloudflare.com',
   'nemoclaw-2': 'https://extra-milan-types-dependent.trycloudflare.com',
 };
 
@@ -784,6 +784,15 @@ function loadNodes() {
   } catch {}
 
   // Auto-fetch known Brev nodes from bridge
+  // Refresh KNOWN_TTYD_URLS dynamically from bridge
+  fetch('http://localhost:8081/api/nodes')
+    .then(r => r.json())
+    .then(data => {
+      (data.nodes || []).forEach(n => {
+        if (n.ttydUrl) KNOWN_TTYD_URLS[n.name] = n.ttydUrl;
+      });
+    }).catch(() => {});
+
   fetch('http://localhost:8081/api/nodes')
     .then(r => r.json())
     .then(data => {
