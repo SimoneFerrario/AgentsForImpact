@@ -421,6 +421,25 @@ async def connect_brev_instance(request: Request):
     return {"error": "Could not get tunnel URL", "instanceName": name}
 
 
+@app.post("/api/deploy")
+async def deploy_app(request: Request):
+    """Deploy a v0 app from a prompt — proxies to nemoclaw-1."""
+    data = await request.json()
+    task = data.get("task", data.get("prompt", ""))
+    if not task:
+        return {"error": "task required"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            r = await client.post(
+                "https://necessity-attraction-atmosphere-champion.trycloudflare.com/api/deploy",
+                json={"task": task}
+            )
+            return r.json()
+        except Exception as e:
+            return {"error": str(e), "success": False}
+
+
 @app.get("/")
 async def root():
     """Serve the 4-panel demo UI."""
