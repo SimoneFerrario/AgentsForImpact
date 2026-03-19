@@ -1030,11 +1030,15 @@ function drawParticles() {
     p.y += p.vy;
     p.vx *= 0.98;
     p.vy *= 0.98;
-    p.life -= p.decay;
+
+    const lifeNow = Math.max(0, p.life);
+    const r = Math.max(0.01, p.size * lifeNow); // prevent negative/zero radius arc errors
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-    ctx.fillStyle = hexToRgba(p.color, p.life * 0.8);
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(p.color, lifeNow * 0.8);
     ctx.fill();
+
+    p.life -= p.decay;
   });
 }
 
