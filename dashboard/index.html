@@ -252,7 +252,7 @@
       <label>Node Name</label>
       <input id="nodeName" placeholder="e.g. DGX Spark, Brev GPU, My Laptop" />
       <label>Endpoint URL</label>
-      <input id="nodeUrl" placeholder="http://hostname:port" value="http://localhost:8080" />
+      <input id="nodeUrl" placeholder="http://hostname:port" value="http://127.0.0.1:18789" />
       <label>Role</label>
       <select id="nodeRole">
         <option value="slave">Slave (Worker)</option>
@@ -342,6 +342,35 @@ window.addEventListener('resize', resize);
 
 // ── Node Management ──
 let nodeSeq = 0;
+
+function normalizeBaseUrl(url){
+  let u=(url||'').trim();
+  if(!u) return '';
+  if(!/^https?:\/\//i.test(u)) u='http://'+u;
+  return u.replace(/\/$/, '');
+}
+
+function probeUrlsForNode(node){
+  const base=normalizeBaseUrl(node.url);
+  const out=[
+    `${base}/api/status`,
+    `${base}/health`,
+    `${base}/api/health`
+  ];
+  try{
+    const parsed=new URL(base);
+    const host=parsed.hostname;
+    if(!parsed.port){
+      out.push(`http://${host}:8080/api/status`);
+      out.push(`http://${host}:8055/health`);
+      out.push(`http://${host}:18789/health`);
+    }else if(parsed.port==='18789'){
+      out.push(`${base}/status`);
+    }
+  }catch{}
+  return [...new Set(out)];
+}
+
 function addNode(name, url, role, token) {
   // If first node is not master, auto-create a local master so topology is always visible
   if (nodes.length === 0 && role !== 'master') {
@@ -357,7 +386,7 @@ function addNode(name, url, role, token) {
   const y = H / 2 + Math.sin(angle) * dist;
 
   const node = {
-    id, name, url, role, token: token || '',
+    id, name, url: normalizeBaseUrl(url), role, token: token || '',
     status: 'connecting', x, y, vx: 0, vy: 0,
     targetX: x, targetY: y,
     agents: [],
@@ -365,7 +394,8 @@ function addNode(name, url, role, token) {
     radius: isMaster ? 40 : 28,
     pulsePhase: Math.random() * Math.PI * 2,
     spawnTime: Date.now(),
-    alpha: 0  // fade in
+    alpha: 0,  // fade in
+    lastWarnAt: 0
   };
   nodes.push(node);
 
@@ -409,56 +439,75 @@ async function pollNodeHealth(id) {
   const node = nodes.find(n => n.id === id);
   if (!node) return;
 
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
+  const headers = {};
+  if (node.token) {
+    headers['Authorization'] = `Bearer ${node.token}`;
+    headers['X-OpenClaw-Token'] = node.token;
+  }
 
-    // Try /api/status first (our server), then /health (OpenClaw gateway)
-    let resp;
+  let success = false;
+  let lastErr = '';
+  const probes = probeUrlsForNode(node);
+
+  for (const url of probes) {
     try {
-      resp = await fetch(node.url.replace(/\/$/, '') + '/api/status', { signal: ctrl.signal });
-    } catch {
-      resp = await fetch(node.url.replace(/\/$/, '') + '/health', { signal: ctrl.signal });
-    }
-    clearTimeout(timer);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4500);
+      const resp = await fetch(url, { signal: ctrl.signal, headers });
+      clearTimeout(timer);
 
-    if (resp.ok) {
-      const data = await resp.json();
+      if (!resp.ok) {
+        lastErr = `${resp.status} ${resp.statusText} @ ${url}`;
+        continue;
+      }
+
+      let data = {};
+      try { data = await resp.json(); } catch { data = {}; }
+
       const wasOffline = node.status !== 'online';
       node.status = 'online';
+      node.lastProbe = url;
 
-      // Extract agents from response
-      if (data.agents) {
+      // Extract agents from multiple response shapes
+      if (data.agents && typeof data.agents === 'object') {
         node.agents = Object.entries(data.agents).map(([role, info]) => ({
           role,
-          name: info.name || role,
-          icon: info.icon || '⚙️',
-          model: info.model_id || info.model || '?',
-          color: info.color || C.muted,
+          name: info?.name || role,
+          icon: info?.icon || '⚙️',
+          model: info?.model_id || info?.model || '?',
+          color: info?.color || C.muted,
           status: 'active'
         }));
+      } else if (Array.isArray(data.tools)) {
+        node.agents = data.tools.slice(0, 8).map(t => ({ role: t.name || 'tool', name: t.name || 'tool', icon: '🧩', model: 'gateway', color: C.purple, status: 'active' }));
+      } else if (!node.agents.length) {
+        node.agents = [{ role: 'openclaw', name: 'OpenClaw', icon: '🦞', model: 'gateway', color: C.cyan, status: 'active' }];
       }
 
       if (wasOffline) {
-        logEvent('success', `${node.name} is ONLINE`);
-        // Spawn particles burst
-        for (let i = 0; i < 14; i++) {
-          spawnBurst(node.x, node.y, node.color);
-        }
-        // Flash all links to/from this node
+        logEvent('success', `${node.name} ONLINE via ${url}`);
+        for (let i = 0; i < 18; i++) spawnBurst(node.x, node.y, node.color);
         connections.filter(c => c.from === node.id || c.to === node.id).forEach(c => {
           linkBursts.push({ from: c.from, to: c.to, life: 1.0, color: node.color });
         });
       }
-    } else {
-      node.status = 'offline';
+      success = true;
+      break;
+    } catch (e) {
+      lastErr = `${e?.message || e} @ ${url}`;
     }
-  } catch {
+  }
+
+  if (!success) {
     if (node.status === 'online') {
-      logEvent('error', `${node.name} went OFFLINE`);
+      logEvent('error', `${node.name} OFFLINE (${lastErr || 'probe failed'})`);
+    } else if (Date.now() - (node.lastWarnAt || 0) > 15000) {
+      logEvent('warn', `${node.name} probe failed (${lastErr || 'no response'})`);
+      node.lastWarnAt = Date.now();
     }
     node.status = node.status === 'connecting' ? 'connecting' : 'offline';
   }
+
   updateKPIs();
   renderNodeList();
 }
@@ -735,8 +784,20 @@ function drawLinkBursts() {
 }
 
 function drawBackground(t) {
-  // Ambient floating particles (more visible)
-  if (Math.random() < 0.06) {
+  // Aurora-style moving gradient ribbons (always visible)
+  for (let i = 0; i < 3; i++) {
+    const y = H * (0.2 + i * 0.28) + Math.sin(t * 0.6 + i * 1.7) * 28;
+    const grd = ctx.createLinearGradient(0, y, W, y + 60);
+    grd.addColorStop(0, 'rgba(56,217,255,0.00)');
+    grd.addColorStop(0.25, 'rgba(56,217,255,0.05)');
+    grd.addColorStop(0.55, 'rgba(167,139,250,0.07)');
+    grd.addColorStop(1, 'rgba(56,217,255,0.00)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, y - 30, W, 70);
+  }
+
+  // Ambient floating particles
+  if (Math.random() < 0.07) {
     particles.push({
       x: Math.random() * W, y: Math.random() * H,
       vx: (Math.random() - 0.5) * 0.45,
@@ -923,14 +984,16 @@ function switchNodeTab(tab) {
 
 function connectNode() {
   const name = document.getElementById('nodeName').value.trim() || 'Node ' + (nodes.length + 1);
-  const url = document.getElementById('nodeUrl').value.trim();
+  const rawUrl = document.getElementById('nodeUrl').value.trim();
+  const url = normalizeBaseUrl(rawUrl || 'http://127.0.0.1:18789');
   const role = document.getElementById('nodeRole').value;
   const token = document.getElementById('nodeToken').value.trim();
   if (!url) return;
+  logEvent('info', `Connecting ${name} → ${url} ...`);
   addNode(name, url, role, token);
   closeConnectModal();
   document.getElementById('nodeName').value = '';
-  document.getElementById('nodeUrl').value = 'http://localhost:8080';
+  document.getElementById('nodeUrl').value = 'http://127.0.0.1:18789';
   document.getElementById('nodeToken').value = '';
 }
 
@@ -1012,6 +1075,7 @@ function renderNodeList() {
       <div class="node-body">
         <div class="node-name">${esc(n.name)} <span style="font-size:10px;color:${n.color}">${roleIcons[n.role] || ''}</span></div>
         <div class="node-url">${esc(n.url)}</div>
+        <div class="node-url" style="color:var(--muted)">status=${esc(n.status)}${n.lastProbe ? ` • probe=${esc(n.lastProbe)}` : ''}</div>
         ${n.agents.length ? `<div class="node-agents">${n.agents.map(a => `<span class="agent-chip" style="border-color:${a.color}40;color:${a.color}">${a.icon} ${a.name}</span>`).join('')}</div>` : ''}
       </div>
       <button class="btn btn-ghost" style="padding:4px 8px;font-size:10px;color:var(--red);flex-shrink:0" onclick="event.stopPropagation();removeNode('${n.id}')">✕</button>
@@ -1157,6 +1221,10 @@ function quickTest(task) {
    ═══════════════════════════════════════════════════════════════ */
 resize();
 loadNodes();
+if(nodes.length===0){
+  logEvent('info','Auto-adding local OpenClaw node (127.0.0.1:18789)');
+  addNode('Local OpenClaw','http://127.0.0.1:18789','gateway','');
+}
 render();
 updateKPIs();
 loadHistory();
