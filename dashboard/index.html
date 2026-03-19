@@ -3,389 +3,1002 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AgentsForImpact — Multi-Agent Dashboard</title>
+  <title>AgentsForImpact — Swarm Topology</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root{--bg:#060a12;--bg2:#0b1120;--panel:#0f1a2f;--border:#1e2d4a;--text:#e6edf7;--muted:#7b8faa;--dim:#4a5e7a;--cyan:#38d9ff;--green:#00e68a;--amber:#ffb347;--red:#ff5c5c;--purple:#a78bfa;--radius:12px}
+    :root{--bg:#060a12;--bg2:#0b1120;--panel:#0f1a2f;--border:#1e2d4a;--border2:#2a3f66;--text:#e6edf7;--muted:#7b8faa;--dim:#4a5e7a;--cyan:#38d9ff;--green:#00e68a;--amber:#ffb347;--red:#ff5c5c;--purple:#a78bfa;--nvidia:#76b900;--radius:12px}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',system-ui,sans-serif;color:var(--text);background:var(--bg);min-height:100vh}
-    .topbar{background:rgba(6,10,18,.85);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
-    .brand{display:flex;align-items:center;gap:12px}
-    .brand-icon{font-size:28px}
-    .brand h1{font-size:18px;font-weight:800;letter-spacing:-.3px}
-    .brand .sub{font-size:11px;color:var(--muted)}
-    .clock{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);background:rgba(56,217,255,.08);border:1px solid rgba(56,217,255,.2);padding:4px 10px;border-radius:999px}
+    body{font-family:'Inter',system-ui,sans-serif;color:var(--text);background:var(--bg);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
-    .main{max-width:1400px;margin:0 auto;padding:20px}
+    /* TOPBAR */
+    .topbar{background:rgba(6,10,18,.9);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;backdrop-filter:blur(12px);flex-shrink:0;z-index:100}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand-icon{font-size:24px}
+    .brand h1{font-size:16px;font-weight:800;letter-spacing:-.3px}
+    .brand .sub{font-size:10px;color:var(--muted)}
+    .top-right{display:flex;gap:10px;align-items:center}
+    .clock{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);background:rgba(56,217,255,.08);border:1px solid rgba(56,217,255,.2);padding:3px 8px;border-radius:999px}
+    .btn{border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:12px;cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
+    .btn-nvidia{background:linear-gradient(180deg,#76b900,#5a8f00);color:#fff;box-shadow:0 2px 12px rgba(118,185,0,.3)}
+    .btn-nvidia:hover{box-shadow:0 4px 20px rgba(118,185,0,.5);transform:translateY(-1px)}
+    .btn-ghost{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--border)}
+    .btn-ghost:hover{background:rgba(255,255,255,.1);color:var(--text)}
+    .btn-cyan{background:linear-gradient(180deg,#38d9ff,#1ca8cc);color:#000;font-weight:800}
+    .btn-red{background:linear-gradient(180deg,var(--red),#cc3333);color:#fff}
 
-    /* Agent Nodes */
-    .agent-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
-    .agent-card{background:linear-gradient(180deg,var(--panel),#0c1525);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;transition:all .3s;position:relative;overflow:hidden}
-    .agent-card.active{border-color:var(--cyan);box-shadow:0 0 20px rgba(56,217,255,.1)}
-    .agent-card .icon{font-size:32px;margin-bottom:6px}
-    .agent-card .name{font-weight:700;font-size:14px;margin-bottom:2px}
-    .agent-card .model{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace}
-    .agent-card .stats{margin-top:8px;display:flex;justify-content:center;gap:12px;font-size:11px}
-    .agent-card .stat{display:flex;flex-direction:column;align-items:center}
-    .agent-card .stat .val{font-weight:700;font-family:'JetBrains Mono',monospace;font-size:14px}
-    .agent-card .stat .lbl{color:var(--muted);font-size:9px;text-transform:uppercase}
-    .agent-card .status-bar{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--border)}
-    .agent-card .status-bar.running{background:linear-gradient(90deg,transparent,var(--cyan),transparent);animation:sweep 1.5s infinite}
-    @keyframes sweep{0%{background-position:-200% 0}100%{background-position:200% 0}}
+    /* TAB BAR */
+    .tab-bar{display:flex;gap:0;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+    .tab{padding:10px 20px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);transition:all .15s;text-transform:uppercase;letter-spacing:.5px}
+    .tab:hover{color:var(--text);background:rgba(255,255,255,.02)}
+    .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);background:rgba(56,217,255,.04)}
+
+    /* MAIN AREA */
+    .main{flex:1;display:flex;overflow:hidden;position:relative}
+
+    /* CANVAS (swarm visualization) */
+    #swarmCanvas{position:absolute;inset:0;width:100%;height:100%}
+
+    /* SIDE PANEL (right) */
+    .side-panel{width:360px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;z-index:10;flex-shrink:0}
+    .side-panel.collapsed{width:0;border:none;overflow:hidden}
+    .panel-section{padding:12px 14px;border-bottom:1px solid var(--border)}
+    .panel-section h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+
+    /* Node list */
+    .node-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .node-item{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;transition:background .15s;display:flex;gap:10px;align-items:flex-start}
+    .node-item:hover{background:rgba(79,140,255,.06)}
+    .node-item.selected{background:rgba(56,217,255,.1);border-left:3px solid var(--cyan)}
+    .node-dot{width:10px;height:10px;border-radius:50%;margin-top:3px;flex-shrink:0}
+    .node-dot.online{background:var(--green);box-shadow:0 0 8px var(--green)}
+    .node-dot.offline{background:var(--red);box-shadow:0 0 6px var(--red)}
+    .node-dot.connecting{background:var(--amber);animation:blink 1s infinite}
+    .node-dot.master{background:var(--cyan);box-shadow:0 0 12px var(--cyan)}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .node-body{flex:1;min-width:0}
+    .node-name{font-weight:700;font-size:13px}
+    .node-url{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;word-break:break-all}
+    .node-agents{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+    .agent-chip{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid var(--border)}
+
+    /* Agent detail */
+    .agent-detail{padding:10px 14px;font-size:11px;line-height:1.6}
+    .agent-detail .label{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+    .agent-detail .value{font-family:'JetBrains Mono',monospace;margin-bottom:6px}
+
+    /* Event log */
+    .event-log{flex:1;overflow-y:auto;padding:8px 14px;font-size:10px;font-family:'JetBrains Mono',monospace;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .log-entry{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.02);color:var(--muted)}
+    .log-entry .ts{color:var(--dim)}
+    .log-entry.info{color:var(--cyan)}
+    .log-entry.success{color:var(--green)}
+    .log-entry.error{color:var(--red)}
+    .log-entry.warn{color:var(--amber)}
+
+    /* CONNECT MODAL */
+    .modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(4,6,12,.85);display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+    .modal-overlay.open{display:flex}
+    .modal{width:min(480px,90vw);background:linear-gradient(180deg,var(--panel),#0c1525);border:1px solid var(--border2);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,.6);padding:24px}
+    .modal h2{font-size:18px;margin-bottom:4px}
+    .modal .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+    .modal label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px;margin-top:12px}
+    .modal input,.modal select{width:100%;padding:10px 12px;border-radius:8px;background:#0b1326;color:var(--text);border:1px solid var(--border2);font-size:13px;outline:none;font-family:'Inter',sans-serif}
+    .modal input:focus{border-color:var(--cyan)}
+    .modal-actions{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
+
+    /* Pipeline view (tab 2) */
+    .pipeline-view{display:none;flex:1;flex-direction:column;overflow:hidden}
+    .pipeline-view.active{display:flex}
+    .swarm-view{display:none;flex:1;position:relative}
+    .swarm-view.active{display:flex}
+
+    /* Pipeline input area */
+    .pipeline-input{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;background:var(--bg2)}
+    .pipeline-input input{flex:1;padding:12px 16px;border-radius:var(--radius);background:var(--panel);color:var(--text);border:1px solid var(--border);font-size:13px;outline:none}
+    .pipeline-input input:focus{border-color:var(--cyan)}
 
     /* Pipeline flow */
+    .pipeline-content{flex:1;overflow-y:auto;padding:20px}
     .flow-visual{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:20px;padding:16px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius)}
     .flow-node{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);min-width:100px;transition:all .3s}
     .flow-node.done{border-color:var(--green);background:rgba(0,230,138,.05)}
     .flow-node.running{border-color:var(--cyan);background:rgba(56,217,255,.05);animation:pulse .8s infinite alternate}
     .flow-node.error{border-color:var(--red);background:rgba(255,92,92,.05)}
-    .flow-node .f-icon{font-size:22px}
-    .flow-node .f-name{font-size:11px;font-weight:700}
-    .flow-node .f-time{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace}
     @keyframes pulse{from{box-shadow:0 0 0 0 rgba(56,217,255,.3)}to{box-shadow:0 0 12px 4px rgba(56,217,255,.1)}}
     .flow-arrow{font-size:20px;color:var(--dim);margin:0 6px}
-    .flow-parallel{display:flex;flex-direction:column;gap:6px;position:relative}
-    .flow-parallel::before{content:'⟦';position:absolute;left:-14px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:24px}
-    .flow-parallel::after{content:'⟧';position:absolute;right:-14px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:24px}
+    .flow-parallel{display:flex;flex-direction:column;gap:6px;position:relative;padding:0 16px}
+    .flow-parallel::before{content:'⟦';position:absolute;left:0;top:50%;transform:translateY(-50%);color:var(--dim);font-size:24px}
+    .flow-parallel::after{content:'⟧';position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--dim);font-size:24px}
+    .f-icon{font-size:22px}
+    .f-name{font-size:11px;font-weight:700}
+    .f-time{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace}
 
-    /* Task input */
-    .task-input-area{display:flex;gap:10px;margin-bottom:20px}
-    .task-input{flex:1;padding:14px 18px;border-radius:var(--radius);background:var(--panel);color:var(--text);border:1px solid var(--border);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:border .2s}
-    .task-input:focus{border-color:var(--cyan)}
-    .task-input::placeholder{color:var(--dim)}
-    .btn{border:none;border-radius:var(--radius);padding:14px 24px;font-weight:700;font-size:14px;cursor:pointer;transition:all .15s}
-    .btn-primary{background:linear-gradient(180deg,#76b900,#5a8f00);color:#fff;box-shadow:0 2px 12px rgba(118,185,0,.3)}
-    .btn-primary:hover{box-shadow:0 4px 20px rgba(118,185,0,.5);transform:translateY(-1px)}
-    .btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none}
-    .btn-ghost{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--border);padding:14px 18px}
-
-    /* Two columns */
-    .columns{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .card{background:linear-gradient(180deg,var(--panel),#0c1525);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
-    .card h3{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-    .card h3 .icon{font-size:16px}
-    .card.full{grid-column:1/-1}
-
-    /* Result */
-    .result-area{min-height:120px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text);max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
-
-    /* Agent detail trace */
-    .trace{display:flex;flex-direction:column;gap:6px;max-height:350px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
-    .trace-item{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11px;background:rgba(255,255,255,.02);cursor:pointer;transition:all .15s}
+    /* Result panels */
+    .result-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .result-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+    .result-card h3{font-size:12px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+    .result-card.full{grid-column:1/-1}
+    .result-area{font-size:12px;line-height:1.7;max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;white-space:pre-wrap}
+    .trace-item{border:1px solid var(--border);border-radius:8px;padding:8px;font-size:10px;margin-bottom:4px;background:rgba(255,255,255,.02);cursor:pointer;transition:all .15s}
     .trace-item:hover{background:rgba(255,255,255,.04)}
-    .trace-item .t-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
     .trace-item .t-role{font-weight:700}
-    .trace-item .t-time{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:10px}
-    .trace-item .t-model{font-size:9px;color:var(--purple)}
-    .trace-item .t-body{color:var(--muted);font-size:10px;max-height:60px;overflow:hidden}
-    .trace-item .t-thinking{color:var(--dim);font-size:10px;font-style:italic;margin-top:4px;max-height:40px;overflow:hidden}
-    .trace-item.expanded .t-body,.trace-item.expanded .t-thinking{max-height:none}
+    .trace-item .t-time{font-family:'JetBrains Mono',monospace;color:var(--muted)}
 
-    /* Pipeline history */
-    .history-item{padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.02);border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background .15s;font-size:11px}
-    .history-item:hover{background:rgba(255,255,255,.04)}
-    .history-item .h-task{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .history-item .h-meta{color:var(--muted);font-size:10px;margin-top:2px}
-
-    /* Quick test */
-    .test-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    /* Quick tests */
+    .test-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
     .test-btn{padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);cursor:pointer;font-size:11px;text-align:left;transition:all .15s;font-family:'Inter',sans-serif}
     .test-btn:hover{border-color:var(--cyan);background:rgba(56,217,255,.05)}
     .test-btn .t-cat{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 
-    @media(max-width:900px){.agent-grid{grid-template-columns:repeat(2,1fr)}.columns{grid-template-columns:1fr}}
-    @media(max-width:600px){.agent-grid{grid-template-columns:1fr}.flow-visual{flex-direction:column}.flow-arrow{transform:rotate(90deg)}}
+    /* KPI strip */
+    .kpi-strip{display:flex;gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);background:rgba(0,0,0,.2)}
+    .kpi{text-align:center;flex:1;padding:6px 4px}
+    .kpi .num{font-size:20px;font-weight:800;font-family:'JetBrains Mono',monospace}
+    .kpi .lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+
+    @media(max-width:900px){
+      .side-panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid var(--border)}
+      .result-cols{grid-template-columns:1fr}
+      .test-grid{grid-template-columns:1fr 1fr}
+    }
   </style>
 </head>
 <body>
 
+<!-- TOPBAR -->
 <div class="topbar">
   <div class="brand">
     <div class="brand-icon">🚀</div>
     <div>
       <h1>AgentsForImpact</h1>
-      <div class="sub">NVIDIA Nemotron Multi-Agent Orchestration</div>
+      <div class="sub">OpenClaw Swarm Protocol</div>
     </div>
   </div>
-  <div style="display:flex;gap:10px;align-items:center">
+  <div class="top-right">
     <div class="clock" id="clock">--:--:--</div>
-    <div style="display:flex;align-items:center;gap:6px">
-      <div id="statusDot" style="width:8px;height:8px;border-radius:50%;background:var(--red)"></div>
-      <span style="font-size:11px;color:var(--muted)" id="statusLabel">connecting...</span>
-    </div>
+    <button class="btn btn-cyan" onclick="openConnectModal()">＋ Connect Node</button>
+    <button class="btn btn-ghost" onclick="toggleSidePanel()">☰</button>
   </div>
 </div>
 
+<!-- TAB BAR -->
+<div class="tab-bar">
+  <div class="tab active" data-tab="swarm" onclick="switchTab('swarm')">🌐 Swarm Topology</div>
+  <div class="tab" data-tab="pipeline" onclick="switchTab('pipeline')">⚡ Pipeline</div>
+</div>
+
+<!-- MAIN AREA -->
 <div class="main">
 
-  <!-- Agent Nodes -->
-  <div class="agent-grid" id="agentGrid"></div>
-
-  <!-- Pipeline Flow Visual -->
-  <div class="flow-visual" id="flowVisual">
-    <div class="flow-node" id="flow-classifier"><div class="f-icon">🏷️</div><div class="f-name">Classifier</div><div class="f-time" id="ft-classifier">—</div></div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-parallel">
-      <div class="flow-node" id="flow-researcher"><div class="f-icon">🔍</div><div class="f-name">Researcher</div><div class="f-time" id="ft-researcher">—</div></div>
-      <div class="flow-node" id="flow-strategist"><div class="f-icon">🧠</div><div class="f-name">Strategist</div><div class="f-time" id="ft-strategist">—</div></div>
-    </div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-node" id="flow-executor"><div class="f-icon">⚡</div><div class="f-name">Executor</div><div class="f-time" id="ft-executor">—</div></div>
+  <!-- SWARM VIEW (Canvas) -->
+  <div class="swarm-view active" id="swarmView">
+    <canvas id="swarmCanvas"></canvas>
   </div>
 
-  <!-- Task Input -->
-  <div class="task-input-area">
-    <input class="task-input" id="taskInput" placeholder="Enter a task for the multi-agent pipeline..." />
-    <button class="btn btn-primary" id="runBtn" onclick="runPipeline()">🚀 Run Pipeline</button>
+  <!-- PIPELINE VIEW -->
+  <div class="pipeline-view" id="pipelineView">
+    <div class="pipeline-input">
+      <input id="taskInput" placeholder="Enter a task for the multi-agent pipeline..." onkeydown="if(event.key==='Enter')runPipeline()"/>
+      <button class="btn btn-nvidia" id="runBtn" onclick="runPipeline()">🚀 Run</button>
+    </div>
+    <div class="pipeline-content">
+      <!-- Flow -->
+      <div class="flow-visual" id="flowVisual">
+        <div class="flow-node" id="flow-classifier"><div class="f-icon">🏷️</div><div class="f-name">Classifier</div><div class="f-time" id="ft-classifier">—</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-parallel">
+          <div class="flow-node" id="flow-researcher"><div class="f-icon">🔍</div><div class="f-name">Researcher</div><div class="f-time" id="ft-researcher">—</div></div>
+          <div class="flow-node" id="flow-strategist"><div class="f-icon">🧠</div><div class="f-name">Strategist</div><div class="f-time" id="ft-strategist">—</div></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node" id="flow-executor"><div class="f-icon">⚡</div><div class="f-name">Executor</div><div class="f-time" id="ft-executor">—</div></div>
+      </div>
+      <!-- Quick tests -->
+      <div class="test-grid">
+        <button class="test-btn" onclick="quickTest('Analyze rising sea levels impact on coastal cities')"><div class="t-cat">Research</div>Climate Impact</button>
+        <button class="test-btn" onclick="quickTest('Design an AI-powered emergency response system for earthquakes')"><div class="t-cat">Technical</div>Emergency AI</button>
+        <button class="test-btn" onclick="quickTest('Create a food waste reduction strategy using predictive analytics')"><div class="t-cat">Analysis</div>Food Waste</button>
+      </div>
+      <!-- Results -->
+      <div class="result-cols">
+        <div class="result-card full"><h3>📄 Response</h3><div class="result-area" id="resultArea"><span style="color:var(--dim)">Run a pipeline to see the multi-agent response...</span></div></div>
+        <div class="result-card"><h3>🔬 Agent Trace</h3><div id="traceArea" style="max-height:250px;overflow-y:auto"><span style="color:var(--dim);font-size:11px">—</span></div></div>
+        <div class="result-card"><h3>📜 History</h3><div id="historyArea" style="max-height:250px;overflow-y:auto"><span style="color:var(--dim);font-size:11px">—</span></div></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Quick Tests -->
-  <div class="card full" style="margin-bottom:16px">
-    <h3><span class="icon">⚡</span> Quick Test Scenarios</h3>
-    <div class="test-grid" id="testGrid">
-      <button class="test-btn" onclick="quickTest('Analyze the impact of rising sea levels on coastal cities and recommend adaptation strategies')"><div class="t-cat">Research</div>Climate Impact Analysis</button>
-      <button class="test-btn" onclick="quickTest('Design a community emergency response plan for earthquake-prone areas using AI-powered early warning systems')"><div class="t-cat">Advisory</div>Emergency Response Plan</button>
-      <button class="test-btn" onclick="quickTest('Create a technical architecture for a real-time air quality monitoring network using low-cost IoT sensors')"><div class="t-cat">Technical</div>Air Quality IoT Network</button>
-      <button class="test-btn" onclick="quickTest('Develop a strategy to reduce food waste in urban areas by 50% using predictive analytics and community platforms')"><div class="t-cat">Analysis</div>Food Waste Reduction</button>
-      <button class="test-btn" onclick="quickTest('Write a proposal for an AI-driven mental health support chatbot for underserved communities')"><div class="t-cat">Creative</div>Mental Health AI</button>
-      <button class="test-btn" onclick="quickTest('Evaluate the effectiveness of predictive policing algorithms and propose ethical alternatives for public safety')"><div class="t-cat">Advisory</div>Ethical Public Safety AI</button>
+  <!-- SIDE PANEL -->
+  <div class="side-panel" id="sidePanel">
+    <!-- KPIs -->
+    <div class="kpi-strip">
+      <div class="kpi"><div class="num" id="kpiNodes" style="color:var(--cyan)">0</div><div class="lbl">Nodes</div></div>
+      <div class="kpi"><div class="num" id="kpiAgents" style="color:var(--green)">0</div><div class="lbl">Agents</div></div>
+      <div class="kpi"><div class="num" id="kpiOnline" style="color:var(--nvidia)">0</div><div class="lbl">Online</div></div>
+      <div class="kpi"><div class="num" id="kpiTasks" style="color:var(--amber)">0</div><div class="lbl">Tasks</div></div>
     </div>
+
+    <!-- Node list -->
+    <div class="panel-section" style="padding-bottom:6px">
+      <h3>🖥️ Connected Nodes</h3>
+    </div>
+    <div class="node-list" id="nodeList">
+      <div style="padding:20px;text-align:center;color:var(--dim);font-size:12px">No nodes connected.<br>Click <b>＋ Connect Node</b> to add one.</div>
+    </div>
+
+    <!-- Event log -->
+    <div class="panel-section" style="padding-bottom:4px;flex-shrink:0">
+      <h3>📡 Event Log</h3>
+    </div>
+    <div class="event-log" id="eventLog"></div>
   </div>
 
-  <!-- Two columns -->
-  <div class="columns">
-    <!-- Final Result -->
-    <div class="card">
-      <h3><span class="icon">📄</span> Final Response</h3>
-      <div class="result-area" id="resultArea">
-        <span style="color:var(--dim)">Run a pipeline to see the multi-agent response...</span>
-      </div>
-    </div>
+</div>
 
-    <!-- Agent Trace -->
-    <div class="card">
-      <h3><span class="icon">🔬</span> Agent Decision Trace</h3>
-      <div class="trace" id="traceArea">
-        <span style="color:var(--dim);font-size:12px">Agent reasoning and outputs will appear here...</span>
-      </div>
-    </div>
+<!-- CONNECT MODAL -->
+<div class="modal-overlay" id="connectModal">
+  <div class="modal">
+    <h2>🔗 Connect Node</h2>
+    <div class="sub">Add an OpenClaw instance or agent server to the swarm</div>
 
-    <!-- Pipeline History -->
-    <div class="card">
-      <h3><span class="icon">📜</span> Pipeline History</h3>
-      <div id="historyArea" style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent">
-        <span style="color:var(--dim);font-size:12px">No pipelines run yet.</span>
-      </div>
-    </div>
+    <label>Node Name</label>
+    <input id="nodeName" placeholder="e.g. DGX Spark, Brev GPU, My Laptop" />
 
-    <!-- Single Agent Test -->
-    <div class="card">
-      <h3><span class="icon">🧪</span> Test Individual Agent</h3>
-      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap" id="agentBtns"></div>
-      <textarea id="agentTestInput" rows="3" placeholder="Type a message to test a single agent..." style="width:100%;padding:10px;border-radius:8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);font-family:'Inter',sans-serif;font-size:12px;resize:vertical;outline:none"></textarea>
-      <div id="agentTestResult" style="margin-top:8px;font-size:11px;color:var(--muted);max-height:200px;overflow-y:auto"></div>
+    <label>Endpoint URL</label>
+    <input id="nodeUrl" placeholder="http://hostname:port" value="http://localhost:8080" />
+
+    <label>Role</label>
+    <select id="nodeRole">
+      <option value="slave">Slave (Worker)</option>
+      <option value="master">Master (Orchestrator)</option>
+      <option value="gateway">OpenClaw Gateway</option>
+    </select>
+
+    <label>Auth Token (optional)</label>
+    <input id="nodeToken" type="password" placeholder="Gateway token or API key" />
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeConnectModal()">Cancel</button>
+      <button class="btn btn-cyan" onclick="connectNode()">Connect</button>
     </div>
   </div>
 </div>
 
 <script>
-const BASE = window.location.origin;
-let pipelineRunning = false;
-const roles = ['classifier','researcher','strategist','executor'];
-const roleColors = {classifier:'#38d9ff',researcher:'#a78bfa',strategist:'#00e68a',executor:'#ffb347'};
-const roleIcons = {classifier:'🏷️',researcher:'🔍',strategist:'🧠',executor:'⚡'};
+/* ═══════════════════════════════════════════════════════════════
+   SWARM TOPOLOGY — Animated Canvas Visualization
+   ═══════════════════════════════════════════════════════════════ */
+
+const canvas = document.getElementById('swarmCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+// ── State ──
+let nodes = [];         // {id, name, url, role, status, x, y, vx, vy, agents:[], color, radius, pulsePhase}
+let connections = [];    // {from, to, particles:[], active}
+let particles = [];      // global floating particles
+let selectedNodeId = null;
+let hoveredNodeId = null;
+let mouseX = 0, mouseY = 0;
+let dragNode = null, dragOffX = 0, dragOffY = 0;
+let animFrame;
+let taskCount = 0;
+
+// Colors
+const C = {
+  cyan: '#38d9ff', green: '#00e68a', amber: '#ffb347', red: '#ff5c5c',
+  purple: '#a78bfa', nvidia: '#76b900', dim: '#1e2d4a', text: '#e6edf7',
+  muted: '#7b8faa', bg: '#060a12'
+};
+
+const roleColors = { master: C.cyan, slave: C.green, gateway: C.purple };
+const roleIcons = { master: '👑', slave: '⚙️', gateway: '🌐' };
+
+// ── Resize ──
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+// ── Node Management ──
+let nodeSeq = 0;
+function addNode(name, url, role, token) {
+  const id = 'n' + (++nodeSeq);
+  // Position: master at center, others in orbit
+  const isMaster = role === 'master';
+  const angle = (nodes.length * 2.3) + Math.random() * 0.5;
+  const dist = isMaster ? 0 : 160 + Math.random() * 80;
+  const x = W / 2 + Math.cos(angle) * dist;
+  const y = H / 2 + Math.sin(angle) * dist;
+
+  const node = {
+    id, name, url, role, token: token || '',
+    status: 'connecting', x, y, vx: 0, vy: 0,
+    targetX: x, targetY: y,
+    agents: [],
+    color: roleColors[role] || C.green,
+    radius: isMaster ? 40 : 28,
+    pulsePhase: Math.random() * Math.PI * 2,
+    spawnTime: Date.now(),
+    alpha: 0  // fade in
+  };
+  nodes.push(node);
+
+  // Connect to master(s)
+  if (!isMaster) {
+    const masters = nodes.filter(n => n.role === 'master');
+    masters.forEach(m => {
+      connections.push({ from: m.id, to: id, particles: [], active: true, alpha: 0, spawnTime: Date.now() });
+    });
+  }
+
+  // Start health polling
+  pollNodeHealth(id);
+  setInterval(() => pollNodeHealth(id), 5000);
+
+  logEvent('info', `Node "${name}" added (${role}) → ${url}`);
+  saveNodes();
+  updateKPIs();
+  renderNodeList();
+  return id;
+}
+
+function removeNode(id) {
+  const idx = nodes.findIndex(n => n.id === id);
+  if (idx < 0) return;
+  const node = nodes[idx];
+  nodes.splice(idx, 1);
+  connections = connections.filter(c => c.from !== id && c.to !== id);
+  logEvent('warn', `Node "${node.name}" removed`);
+  if (selectedNodeId === id) selectedNodeId = null;
+  saveNodes();
+  updateKPIs();
+  renderNodeList();
+}
+
+async function pollNodeHealth(id) {
+  const node = nodes.find(n => n.id === id);
+  if (!node) return;
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+
+    // Try /api/status first (our server), then /health (OpenClaw gateway)
+    let resp;
+    try {
+      resp = await fetch(node.url.replace(/\/$/, '') + '/api/status', { signal: ctrl.signal });
+    } catch {
+      resp = await fetch(node.url.replace(/\/$/, '') + '/health', { signal: ctrl.signal });
+    }
+    clearTimeout(timer);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const wasOffline = node.status !== 'online';
+      node.status = 'online';
+
+      // Extract agents from response
+      if (data.agents) {
+        node.agents = Object.entries(data.agents).map(([role, info]) => ({
+          role,
+          name: info.name || role,
+          icon: info.icon || '⚙️',
+          model: info.model_id || info.model || '?',
+          color: info.color || C.muted,
+          status: 'active'
+        }));
+      }
+
+      if (wasOffline) {
+        logEvent('success', `${node.name} is ONLINE`);
+        // Spawn particles burst
+        for (let i = 0; i < 8; i++) {
+          spawnBurst(node.x, node.y, node.color);
+        }
+      }
+    } else {
+      node.status = 'offline';
+    }
+  } catch {
+    if (node.status === 'online') {
+      logEvent('error', `${node.name} went OFFLINE`);
+    }
+    node.status = node.status === 'connecting' ? 'connecting' : 'offline';
+  }
+  updateKPIs();
+  renderNodeList();
+}
+
+// ── Persistence ──
+function saveNodes() {
+  const data = nodes.map(n => ({ name: n.name, url: n.url, role: n.role, token: n.token }));
+  localStorage.setItem('afi_nodes', JSON.stringify(data));
+}
+function loadNodes() {
+  try {
+    const data = JSON.parse(localStorage.getItem('afi_nodes') || '[]');
+    data.forEach(d => addNode(d.name, d.url, d.role, d.token));
+  } catch {}
+}
+
+// ── Particles ──
+function spawnBurst(x, y, color) {
+  const angle = Math.random() * Math.PI * 2;
+  const speed = 1 + Math.random() * 3;
+  particles.push({
+    x, y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    life: 1,
+    decay: 0.015 + Math.random() * 0.02,
+    color,
+    size: 2 + Math.random() * 3
+  });
+}
+
+function spawnConnectionParticle(conn) {
+  const fromNode = nodes.find(n => n.id === conn.from);
+  const toNode = nodes.find(n => n.id === conn.to);
+  if (!fromNode || !toNode) return;
+  conn.particles.push({
+    t: 0, speed: 0.005 + Math.random() * 0.008,
+    size: 1.5 + Math.random() * 2,
+    color: fromNode.color
+  });
+}
+
+// ── Drawing ──
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(30,45,74,.3)';
+  ctx.lineWidth = 0.5;
+  const step = 60;
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+}
+
+function drawConnection(conn, t) {
+  const fromNode = nodes.find(n => n.id === conn.from);
+  const toNode = nodes.find(n => n.id === conn.to);
+  if (!fromNode || !toNode) return;
+
+  conn.alpha = Math.min(1, conn.alpha + 0.02);
+  const bothOnline = fromNode.status === 'online' && toNode.status === 'online';
+  const baseAlpha = bothOnline ? 0.4 : 0.1;
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(fromNode.x, fromNode.y);
+  ctx.lineTo(toNode.x, toNode.y);
+  ctx.strokeStyle = `rgba(56,217,255,${baseAlpha * conn.alpha})`;
+  ctx.lineWidth = bothOnline ? 2 : 1;
+  ctx.setLineDash(bothOnline ? [] : [4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Glow when active
+  if (bothOnline) {
+    ctx.beginPath();
+    ctx.moveTo(fromNode.x, fromNode.y);
+    ctx.lineTo(toNode.x, toNode.y);
+    ctx.strokeStyle = `rgba(56,217,255,${0.08 * conn.alpha})`;
+    ctx.lineWidth = 8;
+    ctx.stroke();
+  }
+
+  // Particles along connection
+  if (bothOnline && Math.random() < 0.03) {
+    spawnConnectionParticle(conn);
+  }
+
+  conn.particles.forEach(p => {
+    p.t += p.speed;
+    if (p.t > 1) { p.t -= 1; } // loop
+    const px = fromNode.x + (toNode.x - fromNode.x) * p.t;
+    const py = fromNode.y + (toNode.y - fromNode.y) * p.t;
+    ctx.beginPath();
+    ctx.arc(px, py, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = 0.8 * conn.alpha;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+  // Keep max 10 particles per connection
+  while (conn.particles.length > 10) conn.particles.shift();
+}
+
+function drawNode(node, t) {
+  node.alpha = Math.min(1, node.alpha + 0.03);
+  const a = node.alpha;
+  const isSelected = node.id === selectedNodeId;
+  const isHovered = node.id === hoveredNodeId;
+  const pulse = Math.sin(t * 2 + node.pulsePhase) * 0.15 + 1;
+  const r = node.radius * (isSelected ? 1.15 : (isHovered ? 1.08 : 1)) * pulse;
+
+  // Outer glow
+  if (node.status === 'online') {
+    const grd = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, r * 2.5);
+    grd.addColorStop(0, hexToRgba(node.color, 0.15 * a));
+    grd.addColorStop(1, hexToRgba(node.color, 0));
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r * 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+  }
+
+  // Ring pulse (master)
+  if (node.role === 'master' && node.status === 'online') {
+    const ringPulse = ((t * 0.8 + node.pulsePhase) % 1);
+    const ringR = r * (1 + ringPulse * 1.5);
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = hexToRgba(node.color, (1 - ringPulse) * 0.3 * a);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Main circle
+  const grad = ctx.createRadialGradient(node.x - r * 0.3, node.y - r * 0.3, r * 0.1, node.x, node.y, r);
+  grad.addColorStop(0, hexToRgba(node.color, 0.3 * a));
+  grad.addColorStop(1, hexToRgba(node.color, 0.08 * a));
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Border
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = hexToRgba(node.color, (isSelected ? 0.9 : 0.5) * a);
+  ctx.lineWidth = isSelected ? 3 : 1.5;
+  ctx.stroke();
+
+  // Status indicator
+  const statusColors = { online: C.green, offline: C.red, connecting: C.amber };
+  const sc = statusColors[node.status] || C.dim;
+  ctx.beginPath();
+  ctx.arc(node.x + r * 0.65, node.y - r * 0.65, 5, 0, Math.PI * 2);
+  ctx.fillStyle = sc;
+  ctx.fill();
+  if (node.status === 'online') {
+    ctx.beginPath();
+    ctx.arc(node.x + r * 0.65, node.y - r * 0.65, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = hexToRgba(sc, 0.4);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Icon/text
+  ctx.font = `${Math.round(r * 0.6)}px Inter`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = hexToRgba(C.text, a);
+  ctx.fillText(roleIcons[node.role] || '⚙️', node.x, node.y);
+
+  // Name label below
+  ctx.font = '700 11px Inter';
+  ctx.fillStyle = hexToRgba(C.text, 0.9 * a);
+  ctx.fillText(node.name, node.x, node.y + r + 14);
+
+  // Role label
+  ctx.font = '600 9px "JetBrains Mono"';
+  ctx.fillStyle = hexToRgba(node.color, 0.7 * a);
+  ctx.fillText(node.role.toUpperCase(), node.x, node.y + r + 26);
+
+  // Draw agent satellites
+  if (node.agents.length > 0 && node.status === 'online') {
+    const agentR = 14;
+    const orbitR = r + 30;
+    node.agents.forEach((ag, i) => {
+      const angle = (i / node.agents.length) * Math.PI * 2 + t * 0.3;
+      const ax = node.x + Math.cos(angle) * orbitR;
+      const ay = node.y + Math.sin(angle) * orbitR;
+
+      // Agent orbit line
+      ctx.beginPath();
+      ctx.moveTo(node.x, node.y);
+      ctx.lineTo(ax, ay);
+      ctx.strokeStyle = hexToRgba(ag.color || C.dim, 0.15 * a);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Agent node
+      const agGrad = ctx.createRadialGradient(ax, ay, 2, ax, ay, agentR);
+      agGrad.addColorStop(0, hexToRgba(ag.color || C.muted, 0.25 * a));
+      agGrad.addColorStop(1, hexToRgba(ag.color || C.muted, 0.05 * a));
+      ctx.beginPath();
+      ctx.arc(ax, ay, agentR, 0, Math.PI * 2);
+      ctx.fillStyle = agGrad;
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(ag.color || C.muted, 0.4 * a);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Agent icon
+      ctx.font = `${agentR * 0.8}px Inter`;
+      ctx.fillStyle = hexToRgba(C.text, 0.8 * a);
+      ctx.fillText(ag.icon || '⚙️', ax, ay);
+    });
+  }
+}
+
+function drawParticles() {
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.98;
+    p.vy *= 0.98;
+    p.life -= p.decay;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(p.color, p.life * 0.6);
+    ctx.fill();
+  });
+}
+
+function drawBackground(t) {
+  // Ambient floating particles
+  if (Math.random() < 0.02) {
+    particles.push({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      life: 1, decay: 0.003,
+      color: C.cyan, size: 1.5
+    });
+  }
+}
+
+// ── Main loop ──
+function render() {
+  const t = Date.now() / 1000;
+
+  ctx.clearRect(0, 0, W, H);
+  // Background gradient
+  const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+  bg.addColorStop(0, '#0a0f1a');
+  bg.addColorStop(1, '#060a12');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  drawGrid();
+  drawBackground(t);
+
+  // Apply gentle forces (nodes repel each other, attract to targets)
+  applyForces();
+
+  connections.forEach(c => drawConnection(c, t));
+  nodes.forEach(n => drawNode(n, t));
+  drawParticles();
+
+  // "No nodes" hint
+  if (nodes.length === 0) {
+    ctx.font = '600 16px Inter';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.dim;
+    ctx.fillText('Click  ＋ Connect Node  to add your first instance', W / 2, H / 2);
+    ctx.font = '400 12px Inter';
+    ctx.fillText('Each connected OpenClaw or agent server appears as a node', W / 2, H / 2 + 28);
+  }
+
+  animFrame = requestAnimationFrame(render);
+}
+
+function applyForces() {
+  // Simple force-directed layout
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    // Repulsion between nodes
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const minDist = (a.radius + b.radius) * 3;
+      if (dist < minDist) {
+        const force = (minDist - dist) / minDist * 0.5;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx -= fx; a.vy -= fy;
+        b.vx += fx; b.vy += fy;
+      }
+    }
+
+    // Attraction to center (gentle)
+    const cx = W / 2, cy = H / 2;
+    a.vx += (cx - a.x) * 0.0003;
+    a.vy += (cy - a.y) * 0.0003;
+
+    // Keep in bounds
+    const margin = 80;
+    if (a.x < margin) a.vx += 0.5;
+    if (a.x > W - margin) a.vx -= 0.5;
+    if (a.y < margin) a.vy += 0.5;
+    if (a.y > H - margin) a.vy -= 0.5;
+
+    // Damping
+    a.vx *= 0.95;
+    a.vy *= 0.95;
+
+    // Don't move dragged node
+    if (dragNode !== a) {
+      a.x += a.vx;
+      a.y += a.vy;
+    }
+  }
+}
+
+// ── Mouse interactions ──
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+
+  if (dragNode) {
+    dragNode.x = mouseX + dragOffX;
+    dragNode.y = mouseY + dragOffY;
+    return;
+  }
+
+  hoveredNodeId = null;
+  for (const n of nodes) {
+    const dx = mouseX - n.x, dy = mouseY - n.y;
+    if (Math.sqrt(dx * dx + dy * dy) < n.radius * 1.3) {
+      hoveredNodeId = n.id;
+      canvas.style.cursor = 'pointer';
+      return;
+    }
+  }
+  canvas.style.cursor = 'default';
+});
+
+canvas.addEventListener('mousedown', e => {
+  for (const n of nodes) {
+    const dx = mouseX - n.x, dy = mouseY - n.y;
+    if (Math.sqrt(dx * dx + dy * dy) < n.radius * 1.3) {
+      dragNode = n;
+      dragOffX = n.x - mouseX;
+      dragOffY = n.y - mouseY;
+      selectedNodeId = n.id;
+      renderNodeList();
+      return;
+    }
+  }
+  selectedNodeId = null;
+  renderNodeList();
+});
+
+canvas.addEventListener('mouseup', () => { dragNode = null; });
+canvas.addEventListener('mouseleave', () => { dragNode = null; hoveredNodeId = null; });
+
+// ── Helpers ──
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UI LOGIC
+   ═══════════════════════════════════════════════════════════════ */
 
 // Clock
-setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString()},1000);
-document.getElementById('clock').textContent=new Date().toLocaleTimeString();
+setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
 
-// Status polling
-async function pollStatus(){
-  try{
-    const r=await fetch(BASE+'/api/status');
-    const j=await r.json();
-    document.getElementById('statusDot').style.background='var(--green)';
-    document.getElementById('statusLabel').textContent='online';
-    renderAgentCards(j.agents);
-  }catch(e){
-    document.getElementById('statusDot').style.background='var(--red)';
-    document.getElementById('statusLabel').textContent='offline';
-  }
+// Tabs
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('swarmView').classList.toggle('active', tab === 'swarm');
+  document.getElementById('pipelineView').classList.toggle('active', tab === 'pipeline');
+  if (tab === 'swarm') resize();
 }
 
-function renderAgentCards(agents){
-  const grid=document.getElementById('agentGrid');
-  const btns=document.getElementById('agentBtns');
-  grid.innerHTML='';
-  btns.innerHTML='';
-  for(const[role,info]of Object.entries(agents)){
-    const s=info.stats;
-    const avgMs=s.calls>0?Math.round(s.total_ms/s.calls):0;
-    grid.innerHTML+=`<div class="agent-card" id="card-${role}">
-      <div class="icon">${info.icon}</div>
-      <div class="name" style="color:${info.color}">${info.name}</div>
-      <div class="model">${info.model_id.split('/').pop()}</div>
-      <div class="stats">
-        <div class="stat"><div class="val">${s.calls}</div><div class="lbl">Calls</div></div>
-        <div class="stat"><div class="val">${avgMs}ms</div><div class="lbl">Avg</div></div>
-        <div class="stat"><div class="val">${s.errors}</div><div class="lbl">Errors</div></div>
+function toggleSidePanel() {
+  document.getElementById('sidePanel').classList.toggle('collapsed');
+  setTimeout(resize, 300);
+}
+
+// Connect modal
+function openConnectModal() { document.getElementById('connectModal').classList.add('open'); document.getElementById('nodeName').focus(); }
+function closeConnectModal() { document.getElementById('connectModal').classList.remove('open'); }
+
+function connectNode() {
+  const name = document.getElementById('nodeName').value.trim() || 'Node ' + (nodes.length + 1);
+  const url = document.getElementById('nodeUrl').value.trim();
+  const role = document.getElementById('nodeRole').value;
+  const token = document.getElementById('nodeToken').value.trim();
+  if (!url) return;
+  addNode(name, url, role, token);
+  closeConnectModal();
+  // Reset form
+  document.getElementById('nodeName').value = '';
+  document.getElementById('nodeUrl').value = 'http://localhost:8080';
+  document.getElementById('nodeToken').value = '';
+}
+
+// Enter key in modal
+document.getElementById('nodeUrl').addEventListener('keydown', e => { if (e.key === 'Enter') connectNode(); });
+
+// KPIs
+function updateKPIs() {
+  document.getElementById('kpiNodes').textContent = nodes.length;
+  document.getElementById('kpiAgents').textContent = nodes.reduce((s, n) => s + n.agents.length, 0);
+  document.getElementById('kpiOnline').textContent = nodes.filter(n => n.status === 'online').length;
+  document.getElementById('kpiTasks').textContent = taskCount;
+}
+
+// Node list
+function renderNodeList() {
+  const el = document.getElementById('nodeList');
+  if (!nodes.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dim);font-size:12px">No nodes connected.<br>Click <b>＋ Connect Node</b> to add one.</div>';
+    return;
+  }
+  el.innerHTML = nodes.map(n => `
+    <div class="node-item ${n.id === selectedNodeId ? 'selected' : ''}" onclick="selectNode('${n.id}')">
+      <div class="node-dot ${n.status}${n.role === 'master' ? ' master' : ''}"></div>
+      <div class="node-body">
+        <div class="node-name">${esc(n.name)} <span style="font-size:10px;color:${n.color}">${roleIcons[n.role] || ''}</span></div>
+        <div class="node-url">${esc(n.url)}</div>
+        ${n.agents.length ? `<div class="node-agents">${n.agents.map(a => `<span class="agent-chip" style="border-color:${a.color}40;color:${a.color}">${a.icon} ${a.name}</span>`).join('')}</div>` : ''}
       </div>
-      <div class="status-bar" id="bar-${role}"></div>
-    </div>`;
-    btns.innerHTML+=`<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;border-color:${info.color}40;color:${info.color}" onclick="testAgent('${role}')">${info.icon} ${info.name}</button>`;
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:10px;color:var(--red);flex-shrink:0" onclick="event.stopPropagation();removeNode('${n.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+function selectNode(id) {
+  selectedNodeId = id;
+  const node = nodes.find(n => n.id === id);
+  if (node) {
+    // Pan canvas to center on this node (gentle)
+    // Just highlight for now
   }
+  renderNodeList();
 }
 
-pollStatus();
-setInterval(pollStatus,8000);
-
-// Flow visual
-function setFlowState(role,state,time){
-  const el=document.getElementById('flow-'+role);
-  if(!el)return;
-  el.className='flow-node'+(state?' '+state:'');
-  const ft=document.getElementById('ft-'+role);
-  if(ft) ft.textContent=time||'—';
+// Event log
+function logEvent(level, msg) {
+  const el = document.getElementById('eventLog');
+  const ts = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = 'log-entry ' + level;
+  div.innerHTML = `<span class="ts">${ts}</span> ${esc(msg)}`;
+  el.prepend(div);
+  while (el.children.length > 100) el.removeChild(el.lastChild);
 }
-function resetFlow(){roles.forEach(r=>setFlowState(r,'','—'))}
 
-// Run pipeline
-async function runPipeline(){
-  const input=document.getElementById('taskInput');
-  const task=input.value.trim();
-  if(!task||pipelineRunning)return;
+function esc(t) { return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-  pipelineRunning=true;
-  document.getElementById('runBtn').disabled=true;
-  document.getElementById('resultArea').innerHTML='<span style="color:var(--cyan)">🚀 Running pipeline...</span>';
-  document.getElementById('traceArea').innerHTML='';
+/* ═══════════════════════════════════════════════════════════════
+   PIPELINE (reuses existing API)
+   ═══════════════════════════════════════════════════════════════ */
+
+const roles_ = ['classifier', 'researcher', 'strategist', 'executor'];
+const roleColors_ = { classifier: '#38d9ff', researcher: '#a78bfa', strategist: '#00e68a', executor: '#ffb347' };
+const roleIcons_ = { classifier: '🏷️', researcher: '🔍', strategist: '🧠', executor: '⚡' };
+
+function setFlowState(role, state, time) {
+  const el = document.getElementById('flow-' + role);
+  if (!el) return;
+  el.className = 'flow-node' + (state ? ' ' + state : '');
+  const ft = document.getElementById('ft-' + role);
+  if (ft) ft.textContent = time || '—';
+}
+function resetFlow() { roles_.forEach(r => setFlowState(r, '', '—')); }
+
+async function runPipeline() {
+  const input = document.getElementById('taskInput');
+  const task = input.value.trim();
+  if (!task) return;
+
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('resultArea').innerHTML = '<span style="color:var(--cyan)">🚀 Running pipeline...</span>';
+  document.getElementById('traceArea').innerHTML = '';
   resetFlow();
+  setFlowState('classifier', 'running', '...');
+  setTimeout(() => { setFlowState('researcher', 'running', '...'); setFlowState('strategist', 'running', '...'); }, 1500);
 
-  // Animate flow
-  setFlowState('classifier','running','...');
-  setTimeout(()=>{
-    setFlowState('researcher','running','...');
-    setFlowState('strategist','running','...');
-  },2000);
+  // Find first online node to send to
+  const target = nodes.find(n => n.status === 'online') || { url: window.location.origin };
 
-  try{
-    const r=await fetch(BASE+'/api/pipeline',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({task})
+  try {
+    const r = await fetch(target.url.replace(/\/$/, '') + '/api/pipeline', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task })
     });
-    const j=await r.json();
+    const j = await r.json();
+    taskCount++;
+    updateKPIs();
 
-    // Update flow states
-    (j.agents||[]).forEach(a=>{
-      const hasError=a.error;
-      setFlowState(a.role,hasError?'error':'done',a.latency_ms?a.latency_ms+'ms':'err');
+    (j.agents || []).forEach(a => {
+      setFlowState(a.role, a.error ? 'error' : 'done', a.latency_ms ? a.latency_ms + 'ms' : 'err');
     });
 
-    // Result
-    document.getElementById('resultArea').innerHTML=formatResult(j.final_answer||'No response.');
+    document.getElementById('resultArea').innerHTML = formatResult(j.final_answer || 'No response.');
+    renderTrace(j.agents || []);
+    logEvent('success', `Pipeline complete: "${task.slice(0, 40)}..." (${j.total_ms}ms)`);
 
-    // Trace
-    renderTrace(j.agents||[]);
+    // Burst on master node
+    const master = nodes.find(n => n.role === 'master');
+    if (master) { for (let i = 0; i < 12; i++) spawnBurst(master.x, master.y, C.nvidia); }
 
-    // History
-    pollStatus();
-    loadHistory();
-  }catch(e){
-    document.getElementById('resultArea').innerHTML=`<span style="color:var(--red)">Error: ${e.message}</span>`;
+    loadHistory(target.url);
+  } catch (e) {
+    document.getElementById('resultArea').innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+    logEvent('error', `Pipeline failed: ${e.message}`);
   }
 
-  pipelineRunning=false;
-  document.getElementById('runBtn').disabled=false;
+  document.getElementById('runBtn').disabled = false;
 }
 
-function formatResult(text){
-  if(typeof text!=='string')text=JSON.stringify(text,null,2);
-  return text
-    .replace(/\*\*(.*?)\*\*/g,'<b>$1</b>')
-    .replace(/\n/g,'<br>')
-    .replace(/#{1,3}\s(.+)/g,'<b style="color:var(--cyan)">$1</b>');
+function formatResult(text) {
+  if (typeof text !== 'string') text = JSON.stringify(text, null, 2);
+  return text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>').replace(/#{1,3}\s(.+)/g, '<b style="color:var(--cyan)">$1</b>');
 }
 
-function renderTrace(agents){
-  const area=document.getElementById('traceArea');
-  area.innerHTML='';
-  agents.forEach(a=>{
-    const color=roleColors[a.role]||'var(--text)';
-    const dataStr=typeof a.data==='object'?JSON.stringify(a.data,null,2):(a.data||'—');
-    const div=document.createElement('div');
-    div.className='trace-item';
-    div.onclick=()=>div.classList.toggle('expanded');
-    div.innerHTML=`
-      <div class="t-head">
-        <span class="t-role" style="color:${color}">${roleIcons[a.role]||''} ${(a.role||'').toUpperCase()}</span>
-        <span class="t-time">${a.latency_ms||'—'}ms</span>
-      </div>
-      <div class="t-model">${(a.model||'').split('/').pop()}</div>
-      <div class="t-body"><pre style="margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:10px">${escHtml(dataStr)}</pre></div>
-      ${a.thinking?`<div class="t-thinking">💭 ${escHtml(a.thinking.slice(0,300))}${a.thinking.length>300?'...':''}</div>`:''}
-      ${a.error?`<div style="color:var(--red);margin-top:4px">❌ ${a.error}</div>`:''}
-    `;
+function renderTrace(agents) {
+  const area = document.getElementById('traceArea');
+  area.innerHTML = '';
+  agents.forEach(a => {
+    const color = roleColors_[a.role] || 'var(--text)';
+    const dataStr = typeof a.data === 'object' ? JSON.stringify(a.data, null, 2) : (a.data || '—');
+    const div = document.createElement('div');
+    div.className = 'trace-item';
+    div.onclick = () => div.classList.toggle('expanded');
+    div.innerHTML = `<div class="t-head"><span class="t-role" style="color:${color}">${roleIcons_[a.role] || ''} ${(a.role || '').toUpperCase()}</span><span class="t-time">${a.latency_ms || '—'}ms</span></div><div style="font-size:9px;color:var(--purple)">${(a.model || '').split('/').pop()}</div><div style="color:var(--muted);font-size:10px;max-height:60px;overflow:hidden"><pre style="margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:10px">${esc(dataStr)}</pre></div>${a.error ? `<div style="color:var(--red);margin-top:4px">❌ ${a.error}</div>` : ''}`;
     area.appendChild(div);
   });
 }
 
-function escHtml(t){return(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-
-// History
-async function loadHistory(){
-  try{
-    const r=await fetch(BASE+'/api/history');
-    const j=await r.json();
-    const area=document.getElementById('historyArea');
-    if(!j.pipelines||!j.pipelines.length){area.innerHTML='<span style="color:var(--dim);font-size:12px">No pipelines yet.</span>';return}
-    area.innerHTML='';
-    j.pipelines.reverse().forEach(p=>{
-      const div=document.createElement('div');
-      div.className='history-item';
-      div.onclick=()=>{
-        document.getElementById('resultArea').innerHTML=formatResult(p.final_answer||'');
-        renderTrace(p.agents||[]);
-        (p.agents||[]).forEach(a=>setFlowState(a.role,a.error?'error':'done',a.latency_ms?a.latency_ms+'ms':''));
+async function loadHistory(baseUrl) {
+  const url = (baseUrl || window.location.origin).replace(/\/$/, '');
+  try {
+    const r = await fetch(url + '/api/history');
+    const j = await r.json();
+    const area = document.getElementById('historyArea');
+    if (!j.pipelines || !j.pipelines.length) { area.innerHTML = '<span style="color:var(--dim);font-size:11px">—</span>'; return; }
+    area.innerHTML = '';
+    j.pipelines.reverse().forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.style.cssText = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:10px';
+      div.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.task || '')}</div><div style="color:var(--muted);font-size:9px">${p.ts || ''} • ${p.total_ms || '?'}ms</div>`;
+      div.onclick = () => {
+        document.getElementById('resultArea').innerHTML = formatResult(p.final_answer || '');
+        renderTrace(p.agents || []);
+        (p.agents || []).forEach(a => setFlowState(a.role, a.error ? 'error' : 'done', a.latency_ms ? a.latency_ms + 'ms' : ''));
       };
-      const agentTimes=(p.agents||[]).map(a=>`${roleIcons[a.role]||''}${a.latency_ms||'?'}ms`).join(' → ');
-      div.innerHTML=`<div class="h-task">${escHtml(p.task||'')}</div><div class="h-meta">${p.ts||''} • ${p.total_ms||'?'}ms total • ${agentTimes}</div>`;
       area.appendChild(div);
     });
-  }catch(e){}
+  } catch {}
 }
-loadHistory();
 
-// Quick test
-function quickTest(task){
-  document.getElementById('taskInput').value=task;
+function quickTest(task) {
+  document.getElementById('taskInput').value = task;
+  switchTab('pipeline');
   runPipeline();
 }
 
-// Test individual agent
-async function testAgent(role){
-  const msg=document.getElementById('agentTestInput').value.trim();
-  if(!msg)return;
-  const result=document.getElementById('agentTestResult');
-  result.innerHTML=`<span style="color:var(--cyan)">Testing ${role}...</span>`;
-  setFlowState(role,'running','...');
-  try{
-    const r=await fetch(BASE+'/api/agent',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({role,message:msg})
-    });
-    const j=await r.json();
-    setFlowState(role,'done',j.latency_ms+'ms');
-    const dataStr=typeof j.data==='object'?JSON.stringify(j.data,null,2):(j.data||j.raw||'—');
-    result.innerHTML=`<div style="margin-bottom:4px"><b style="color:${roleColors[role]}">${role.toUpperCase()}</b> • ${j.latency_ms}ms • <span style="color:var(--purple)">${(j.model||'').split('/').pop()}</span></div><pre style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text)">${escHtml(dataStr)}</pre>${j.thinking?`<div style="color:var(--dim);font-style:italic;margin-top:4px;font-size:10px">💭 ${escHtml(j.thinking.slice(0,200))}</div>`:''}`;
-    pollStatus();
-  }catch(e){
-    setFlowState(role,'error','err');
-    result.innerHTML=`<span style="color:var(--red)">Error: ${e.message}</span>`;
-  }
-}
-
-// Enter key
-document.getElementById('taskInput').addEventListener('keydown',e=>{if(e.key==='Enter')runPipeline()});
+/* ═══════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════ */
+resize();
+loadNodes();
+render();
+updateKPIs();
+loadHistory();
 </script>
 </body>
 </html>

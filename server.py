@@ -81,6 +81,12 @@ PIPELINE_LOG = []  # list of pipeline runs
 AGENT_STATS = {k: {"calls": 0, "total_ms": 0, "errors": 0, "last_active": None} for k in AGENTS}
 CHAT_HISTORY = {}
 
+# ── Node Registry (multi-instance swarm) ──
+import uuid, socket
+INSTANCE_ID = str(uuid.uuid4())[:8]
+INSTANCE_NAME = os.environ.get("INSTANCE_NAME", socket.gethostname())
+NODE_REGISTRY = {}  # id -> {name, url, role, status, agents, last_seen}
+
 def strip_think(text):
     if not text:
         return ""
@@ -283,6 +289,33 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(200, {"role": role, **result})
             return
 
+        if self.path == "/api/nodes/register":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            nid = body.get("id", str(uuid.uuid4())[:8])
+            NODE_REGISTRY[nid] = {
+                "name": body.get("name", "unknown"),
+                "url": body.get("url", ""),
+                "role": body.get("role", "slave"),
+                "status": "online",
+                "agents": body.get("agents", []),
+                "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S")
+            }
+            self._json(200, {"status": "registered", "node_id": nid})
+            return
+
+        if self.path == "/api/nodes/heartbeat":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            nid = body.get("id", "")
+            if nid in NODE_REGISTRY:
+                NODE_REGISTRY[nid]["last_seen"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                NODE_REGISTRY[nid]["status"] = "online"
+                if "agents" in body:
+                    NODE_REGISTRY[nid]["agents"] = body["agents"]
+            self._json(200, {"status": "ok"})
+            return
+
         if self.path == "/api/chat":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -330,10 +363,17 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/status":
             self._json(200, {
                 "status": "online",
+                "instance_id": INSTANCE_ID,
+                "instance_name": INSTANCE_NAME,
                 "agents": {k: {**AGENTS[k], "stats": AGENT_STATS[k], "model_id": MODELS[AGENTS[k]["model"]]} for k in AGENTS},
                 "pipeline_count": len(PIPELINE_LOG),
-                "models": MODELS
+                "models": MODELS,
+                "nodes": NODE_REGISTRY
             })
+            return
+
+        if self.path == "/api/nodes":
+            self._json(200, {"nodes": NODE_REGISTRY, "self": {"id": INSTANCE_ID, "name": INSTANCE_NAME}})
             return
 
         if self.path == "/api/history":
