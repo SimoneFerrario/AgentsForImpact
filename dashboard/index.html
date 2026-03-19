@@ -215,6 +215,10 @@
     <canvas id="swarmCanvas"></canvas>
     <div class="swarm-status" id="swarmStatus">Ready • type a task and distribute to online nodes</div>
     <div class="map-controls">
+      <button onclick="panBy(0,40)">↑</button>
+      <button onclick="panBy(0,-40)">↓</button>
+      <button onclick="panBy(40,0)">←</button>
+      <button onclick="panBy(-40,0)">→</button>
       <button onclick="zoomBy(1.15)">＋</button>
       <button onclick="zoomBy(0.87)">－</button>
       <button onclick="resetView()">Reset</button>
@@ -874,8 +878,8 @@ function drawNode(node, t) {
   const isWorking = (nodeWorkingUntil[node.id] || 0) > Date.now();
   const isStreaming = (nodeStreamingUntil[node.id] || 0) > Date.now();
 
-  // Zoom compensation: keep nodes readable/clickable at low zoom while still scaling with zoom
-  const zoomComp = Math.pow(1 / Math.max(0.35, view.scale), 0.35);
+  // Make icon size visibly follow zoom (no over-compensation)
+  const zoomComp = 1;
 
   const basePulse = Math.sin(t * 2 + node.pulsePhase) * 0.12 + 1;
   const thinkPulse = (isWorking || isStreaming) ? (Math.sin(t * 8 + node.pulsePhase) * 0.18 + 1.08) : 1;
@@ -1288,6 +1292,11 @@ function zoomBy(factor){
   zoomAt(W/2, H/2, factor);
 }
 
+function panBy(dx, dy){
+  view.x += dx;
+  view.y += dy;
+}
+
 function resetView(){
   view.scale = 1;
   view.x = 0;
@@ -1326,31 +1335,50 @@ async function pollNemoStatus() {
     const data = await r.json();
     (data.nodes || []).forEach(node => {
       const el = document.getElementById('nemoNode-' + node.name);
-      if (!el) return;
-      const dot = el.querySelector('.nemo-dot');
-      const detail = el.querySelector('.nemo-detail');
-      if (node.status === 'online') {
-        dot.style.background = 'var(--green)';
-        dot.style.boxShadow = '0 0 6px var(--green)';
-        const d = node.detail || {};
-        detail.textContent = `✓ ${d.instance_name || 'online'} · ${d.pipeline_count ?? 0} tasks`;
-        detail.style.color = 'var(--green)';
-      } else {
-        dot.style.background = 'var(--red)';
-        dot.style.boxShadow = '0 0 6px var(--red)';
-        detail.textContent = 'offline';
-        detail.style.color = 'var(--red)';
+      if (el) {
+        const dot = el.querySelector('.nemo-dot');
+        const detail = el.querySelector('.nemo-detail');
+        if (node.status === 'online') {
+          dot.style.background = 'var(--green)';
+          dot.style.boxShadow = '0 0 6px var(--green)';
+          const d = node.detail || {};
+          detail.textContent = `✓ ${d.instance_name || 'online'} · ${d.pipeline_count ?? 0} tasks`;
+          detail.style.color = 'var(--green)';
+        } else {
+          dot.style.background = 'var(--red)';
+          dot.style.boxShadow = '0 0 6px var(--red)';
+          detail.textContent = 'offline';
+          detail.style.color = 'var(--red)';
+        }
+      }
+
+      // Sync swarm map node status live by name
+      const mapNode = nodes.find(n => n.name === node.name);
+      if (mapNode) {
+        mapNode.status = node.status === 'online' ? 'online' : 'offline';
+        if (node.status === 'online') {
+          mapNode.lastProbe = 'bridge:nemoclaw-status';
+          if (!mapNode.agents.length) {
+            mapNode.agents = [{ role: 'nemoclaw', name: 'NemoClaw', icon: '🤖', model: 'remote', color: C.green, status: 'active' }];
+          }
+        }
       }
     });
     const ts = document.getElementById('nemoLastChecked');
     if (ts) ts.textContent = 'last checked ' + new Date().toLocaleTimeString();
+    updateKPIs();
+    renderNodeList();
   } catch(e) {
     ['nemoclaw-1','nemoclaw-2'].forEach(name => {
       const el = document.getElementById('nemoNode-' + name);
-      if (!el) return;
-      el.querySelector('.nemo-dot').style.background = 'var(--amber)';
-      el.querySelector('.nemo-detail').textContent = 'bridge unreachable';
+      if (el) {
+        el.querySelector('.nemo-dot').style.background = 'var(--amber)';
+        el.querySelector('.nemo-detail').textContent = 'bridge unreachable';
+      }
+      const mapNode = nodes.find(n => n.name === name);
+      if (mapNode && mapNode.status !== 'online') mapNode.status = 'connecting';
     });
+    renderNodeList();
   }
 }
 // Poll immediately and every 10s
