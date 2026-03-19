@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # test-vnc.sh — Check and restart ttyd/cloudflared tunnels on nemoclaw-1 and nemoclaw-2
 
-set -euo pipefail
-
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -11,14 +9,11 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-INSTANCES=("nemoclaw-1" "nemoclaw-2")
-declare -A URLS
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
-log_info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
-log_ok()      { echo -e "${GREEN}[OK]${RESET}    $*"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
-log_err()     { echo -e "${RED}[ERR]${RESET}   $*"; }
+log_info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+log_ok()    { echo -e "${GREEN}[OK]${RESET}    $*"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+log_err()   { echo -e "${RED}[ERR]${RESET}   $*"; }
 
 check_ttyd() {
   local name="$1"
@@ -39,7 +34,10 @@ start_ttyd() {
 
 get_cf_url() {
   local name="$1"
-  brev exec "$name" "grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cf-ttyd.log | tail -1" 2>&1 | tr -d '[:space:]'
+  local raw
+  raw=$(brev exec "$name" "grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cf-ttyd.log | tail -1" 2>&1)
+  # Extract just the URL in case brev appends instance name or extra text
+  echo "$raw" | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | head -1
 }
 
 start_cloudflared() {
@@ -51,45 +49,47 @@ start_cloudflared() {
 }
 
 # ── Per-instance logic ────────────────────────────────────────────────────────
+# Returns the URL via stdout; caller captures it.
 handle_instance() {
   local name="$1"
-  echo ""
-  echo -e "${BOLD}━━━ $name ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  local url=""
+
+  echo "" >&2
+  echo -e "${BOLD}━━━ $name ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&2
 
   # 1. Check ttyd
   if check_ttyd "$name"; then
-    log_ok "$name: ttyd is alive"
+    log_ok "$name: ttyd is alive" >&2
   else
     start_ttyd "$name"
-    # Verify restart
     if check_ttyd "$name"; then
-      log_ok "$name: ttyd restarted successfully"
+      log_ok "$name: ttyd restarted successfully" >&2
     else
-      log_err "$name: ttyd failed to start — aborting tunnel check"
-      URLS["$name"]="UNAVAILABLE"
+      log_err "$name: ttyd failed to start — aborting tunnel check" >&2
+      echo "UNAVAILABLE"
       return
     fi
   fi
 
   # 2. Try to fetch existing cloudflared URL
-  local url
   url=$(get_cf_url "$name")
 
   if [[ -n "$url" && "$url" =~ ^https:// ]]; then
-    log_ok "$name: existing tunnel URL found: $url"
-    URLS["$name"]="$url"
-  else
-    # 3. Restart cloudflared
-    start_cloudflared "$name"
-    url=$(get_cf_url "$name")
+    log_ok "$name: existing tunnel URL found: $url" >&2
+    echo "$url"
+    return
+  fi
 
-    if [[ -n "$url" && "$url" =~ ^https:// ]]; then
-      log_ok "$name: new tunnel URL: $url"
-      URLS["$name"]="$url"
-    else
-      log_err "$name: could not obtain cloudflared URL"
-      URLS["$name"]="UNAVAILABLE"
-    fi
+  # 3. Restart cloudflared and get new URL
+  start_cloudflared "$name"
+  url=$(get_cf_url "$name")
+
+  if [[ -n "$url" && "$url" =~ ^https:// ]]; then
+    log_ok "$name: new tunnel URL: $url" >&2
+    echo "$url"
+  else
+    log_err "$name: could not obtain cloudflared URL" >&2
+    echo "UNAVAILABLE"
   fi
 }
 
@@ -100,36 +100,30 @@ echo "║         ttyd / cloudflared Health Check          ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo -e "${RESET}"
 
-for instance in "${INSTANCES[@]}"; do
-  handle_instance "$instance"
-done
+URL1=$(handle_instance "nemoclaw-1")
+URL2=$(handle_instance "nemoclaw-2")
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}━━━ Summary ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-for instance in "${INSTANCES[@]}"; do
-  url="${URLS[$instance]:-UNAVAILABLE}"
-  if [[ "$url" == "UNAVAILABLE" ]]; then
-    echo -e "${RED}✗ $instance: UNAVAILABLE${RESET}"
+for pair in "nemoclaw-1:$URL1" "nemoclaw-2:$URL2"; do
+  inst="${pair%%:*}"
+  url="${pair#*:}"
+  if [[ "$url" == "UNAVAILABLE" || -z "$url" ]]; then
+    echo -e "${RED}✗ $inst: UNAVAILABLE${RESET}"
   else
-    echo -e "${GREEN}✓ $instance: $url${RESET}"
+    echo -e "${GREEN}✓ $inst: $url${RESET}"
   fi
 done
 echo ""
 
 # ── Open in browser ───────────────────────────────────────────────────────────
-URL1="${URLS[nemoclaw-1]:-}"
-URL2="${URLS[nemoclaw-2]:-}"
-
-OPEN_ARGS=()
-[[ -n "$URL1" && "$URL1" != "UNAVAILABLE" ]] && OPEN_ARGS+=("$URL1")
-[[ -n "$URL2" && "$URL2" != "UNAVAILABLE" ]] && OPEN_ARGS+=("$URL2")
-
-if [[ ${#OPEN_ARGS[@]} -gt 0 ]]; then
-  log_info "Opening URLs in browser..."
-  for url in "${OPEN_ARGS[@]}"; do
-    open "$url"
-  done
-else
-  log_warn "No valid URLs to open."
-fi
+log_info "Opening URLs in browser..."
+opened=0
+for url in "$URL1" "$URL2"; do
+  if [[ -n "$url" && "$url" != "UNAVAILABLE" ]]; then
+    open "$url" 2>/dev/null || true
+    opened=$((opened + 1))
+  fi
+done
+[[ $opened -eq 0 ]] && log_warn "No valid URLs to open."
