@@ -1090,19 +1090,7 @@ function initBgOrbs() {
 function drawBackground(t) {
   initBgOrbs();
 
-  // Aurora-style moving gradient ribbons (always visible)
-  for (let i = 0; i < 3; i++) {
-    const y = H * (0.2 + i * 0.28) + Math.sin(t * 0.8 + i * 1.7) * 34;
-    const grd = ctx.createLinearGradient(0, y, W, y + 60);
-    grd.addColorStop(0, 'rgba(56,217,255,0.00)');
-    grd.addColorStop(0.25, 'rgba(56,217,255,0.06)');
-    grd.addColorStop(0.55, 'rgba(167,139,250,0.08)');
-    grd.addColorStop(1, 'rgba(56,217,255,0.00)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, y - 30, W, 70);
-  }
-
-  // Persistent moving orbs (clearly animated)
+  // Persistent moving orbs (parallax-only background)
   bgOrbs.forEach(o => {
     o.x += o.vx;
     o.y += o.vy;
@@ -1112,7 +1100,7 @@ function drawBackground(t) {
     if (o.y < -20) o.y = H + 20;
     if (o.y > H + 20) o.y = -20;
 
-    const alpha = 0.18 + (Math.sin(o.tw) * 0.08);
+    const alpha = 0.16 + (Math.sin(o.tw) * 0.06);
     ctx.beginPath();
     ctx.arc(o.x, o.y, o.size, 0, Math.PI * 2);
     ctx.fillStyle = o.hue === 'cyan' ? `rgba(56,217,255,${alpha})` : `rgba(167,139,250,${alpha})`;
@@ -1120,7 +1108,7 @@ function drawBackground(t) {
   });
 
   // Ambient floating particles
-  if (Math.random() < 0.08) {
+  if (Math.random() < 0.07) {
     particles.push({
       x: Math.random() * W, y: Math.random() * H,
       vx: (Math.random() - 0.5) * 0.55,
