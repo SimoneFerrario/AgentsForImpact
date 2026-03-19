@@ -390,14 +390,29 @@ async def list_brev_instances():
 
 @app.post("/api/brev/connect")
 async def connect_brev_instance(request: Request):
-    """Start a cloudflared tunnel on a Brev instance and return the public URL."""
+    """Start (or reuse) a cloudflared tunnel on a Brev instance and return the public URL."""
     import asyncio
     data = await request.json()
     name = data.get("instanceName", "").strip()
     if not name:
         return {"error": "instanceName required"}
 
-    # Start cloudflared tunnel
+    async def read_url_once() -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "brev", "exec", name,
+            "grep -o 'https://[a-z0-9-]*.trycloudflare.com' /tmp/cf-8080.log | head -1",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        url = stdout.decode().strip().split('\n')[0].strip()
+        return url if url.startswith("https://") else ""
+
+    # Fast path: existing tunnel URL already available
+    existing = await read_url_once()
+    if existing:
+        return {"url": existing, "instanceName": name, "reused": True}
+
+    # Start cloudflared tunnel in background
     proc = await asyncio.create_subprocess_exec(
         "brev", "exec", name,
         "nohup /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate > /tmp/cf-8080.log 2>&1 &",
@@ -405,19 +420,14 @@ async def connect_brev_instance(request: Request):
     )
     await proc.communicate()
 
-    # Wait and get URL
-    await asyncio.sleep(8)
-    url_proc = await asyncio.create_subprocess_exec(
-        "brev", "exec", name,
-        "grep -o 'https://[a-z0-9-]*.trycloudflare.com' /tmp/cf-8080.log | head -1",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await url_proc.communicate()
-    url = stdout.decode().strip().split('\n')[0].strip()
+    # Poll log for URL (up to ~45s)
+    for _ in range(23):
+        await asyncio.sleep(2)
+        url = await read_url_once()
+        if url:
+            return {"url": url, "instanceName": name, "reused": False}
 
-    if url and url.startswith('https://'):
-        return {"url": url, "instanceName": name}
-    return {"error": "Could not get tunnel URL", "instanceName": name}
+    return {"error": "Could not get tunnel URL yet (timeout)", "instanceName": name}
 
 
 @app.post("/api/deploy")

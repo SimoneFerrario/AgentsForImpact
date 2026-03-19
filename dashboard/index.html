@@ -1698,9 +1698,20 @@ async function loadBrevInstances() {
 }
 
 async function addBrevInstance(instanceName) {
-  // Check if already added via known nodes from /api/nodes
   logEvent('info', `🔗 Adding Brev instance "${instanceName}" to swarm…`);
   closeConnectModal();
+
+  // Add immediately as pending/connecting for instant UX feedback
+  let existingNode = nodes.find(n => n.name === instanceName);
+  if (!existingNode) {
+    addNode(instanceName, `http://${instanceName}:8080`, 'slave', '');
+    existingNode = nodes.find(n => n.name === instanceName);
+  }
+  if (existingNode) {
+    existingNode.status = 'connecting';
+    existingNode.lastProbe = 'brev:pending-tunnel';
+    renderNodeList();
+  }
 
   try {
     // Check if there's already a known URL for this instance
@@ -1708,8 +1719,15 @@ async function addBrevInstance(instanceName) {
     const nodesData = await nodesResp.json();
     const known = (nodesData.nodes || []).find(n => n.name === instanceName);
     if (known && known.url) {
-      logEvent('success', `✓ "${instanceName}" already has tunnel URL — adding directly`);
-      addNode(instanceName, known.url, 'slave', '', known.ttydUrl || null);
+      logEvent('success', `✓ "${instanceName}" already has tunnel URL — connecting now`);
+      existingNode = nodes.find(n => n.name === instanceName) || existingNode;
+      if (existingNode) {
+        existingNode.url = normalizeBaseUrl(known.url);
+        existingNode.ttydUrl = known.ttydUrl || existingNode.ttydUrl;
+        existingNode.lastProbe = 'brev:known-url';
+        pollNodeHealth(existingNode.id);
+        renderNodeList();
+      }
       return;
     }
   } catch {}
@@ -1725,9 +1743,23 @@ async function addBrevInstance(instanceName) {
     const data = await r.json();
     if (data.url) {
       logEvent('success', `✓ Tunnel ready for "${instanceName}": ${data.url}`);
-      addNode(instanceName, data.url, 'slave', '');
+      existingNode = nodes.find(n => n.name === instanceName) || existingNode;
+      if (existingNode) {
+        existingNode.url = normalizeBaseUrl(data.url);
+        existingNode.lastProbe = 'brev:tunnel-ready';
+        pollNodeHealth(existingNode.id);
+        renderNodeList();
+      } else {
+        addNode(instanceName, data.url, 'slave', '');
+      }
     } else {
-      logEvent('error', `✗ Could not get tunnel URL for "${instanceName}": ${data.error || 'unknown error'}`);
+      logEvent('warn', `⏳ Tunnel not ready yet for "${instanceName}": ${data.error || 'pending'}`);
+      // Keep node visible as connecting and let periodic polling catch it later
+      if (existingNode) {
+        existingNode.status = 'connecting';
+        existingNode.lastProbe = 'brev:waiting-tunnel';
+        renderNodeList();
+      }
     }
   } catch (e) {
     logEvent('error', `✗ Connect failed for "${instanceName}": ${e.message}`);
