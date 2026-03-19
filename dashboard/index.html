@@ -595,6 +595,7 @@ function addNode(name, url, role, token, ttydUrl) {
     spawnTime: Date.now(),
     alpha: 0,  // fade in
     lastWarnAt: 0,
+    failCount: 0,
     ttydUrl: resolvedTtydUrl,
   };
   nodes.push(node);
@@ -688,6 +689,7 @@ async function pollNodeHealth(id) {
 
       const wasOffline = node.status !== 'online';
       node.status = 'online';
+      node.failCount = 0;
       node.lastProbe = url;
 
       // Extract agents from multiple response shapes
@@ -726,6 +728,7 @@ async function pollNodeHealth(id) {
       const ws = await wsProbe(node, 2200);
       const wasOffline = node.status !== 'online';
       node.status = 'online';
+      node.failCount = 0;
       node.lastProbe = ws.via;
       if (!node.agents.length) {
         node.agents = [{ role: 'openclaw', name: 'OpenClaw Gateway', icon: '🦞', model: 'ws', color: C.cyan, status: 'active' }];
@@ -741,13 +744,27 @@ async function pollNodeHealth(id) {
   }
 
   if (!success) {
-    if (node.status === 'online') {
-      logEvent('error', `${node.name} OFFLINE (${lastErr || 'probe failed'})`);
-    } else if (Date.now() - (node.lastWarnAt || 0) > 15000) {
-      logEvent('warn', `${node.name} probe failed (${lastErr || 'no response'})`);
-      node.lastWarnAt = Date.now();
+    node.failCount = (node.failCount || 0) + 1;
+
+    const isBusy = ((nodeWorkingUntil[node.id] || 0) > Date.now()) || ((nodeStreamingUntil[node.id] || 0) > Date.now());
+    const shouldKeepAlive = isBusy || node.failCount < 3;
+
+    if (shouldKeepAlive) {
+      // Node might be busy (dispatch/WS occupied) or this is a transient probe miss
+      node.status = isBusy ? 'online' : (node.status === 'online' ? 'online' : 'connecting');
+      if (Date.now() - (node.lastWarnAt || 0) > 15000) {
+        logEvent('warn', `${node.name} probe miss tolerated (busy/transient): ${lastErr || 'no response'}`);
+        node.lastWarnAt = Date.now();
+      }
+    } else {
+      if (node.status === 'online') {
+        logEvent('error', `${node.name} OFFLINE after ${node.failCount} failed probes (${lastErr || 'probe failed'})`);
+      } else if (Date.now() - (node.lastWarnAt || 0) > 15000) {
+        logEvent('warn', `${node.name} probe failed (${lastErr || 'no response'})`);
+        node.lastWarnAt = Date.now();
+      }
+      node.status = 'offline';
     }
-    node.status = node.status === 'connecting' ? 'connecting' : 'offline';
   }
 
   updateKPIs();
@@ -1409,9 +1426,24 @@ setInterval(() => { document.getElementById('clock').textContent = new Date().to
 // NemoClaw health polling
 async function pollNemoStatus() {
   try {
-    const r = await fetch('http://localhost:8081/api/nemoclaw-status');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
+    const candidates = [
+      `${location.protocol}//${location.hostname}:8081/api/nemoclaw-status`,
+      'http://localhost:8081/api/nemoclaw-status'
+    ];
+
+    let data = null;
+    let lastErr = '';
+    for (const u of candidates) {
+      try {
+        const r = await fetch(u, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) { lastErr = `HTTP ${r.status} @ ${u}`; continue; }
+        data = await r.json();
+        break;
+      } catch (e) {
+        lastErr = `${e?.message || e} @ ${u}`;
+      }
+    }
+    if (!data) throw new Error(lastErr || 'bridge unreachable');
     (data.nodes || []).forEach(node => {
       const el = document.getElementById('nemoNode-' + node.name);
       if (el) {
@@ -1431,10 +1463,16 @@ async function pollNemoStatus() {
         }
       }
 
-      // Sync swarm map node status live by name
-      const mapNode = nodes.find(n => n.name === node.name);
+      // Sync swarm map node status live (by name, detail.instance_name, or url hint)
+      const instanceName = (node.detail && node.detail.instance_name) ? String(node.detail.instance_name) : '';
+      const mapNode = nodes.find(n =>
+        n.name === node.name ||
+        (instanceName && n.name === instanceName) ||
+        (n.url && instanceName && n.url.includes(instanceName))
+      );
       if (mapNode) {
         mapNode.status = node.status === 'online' ? 'online' : 'offline';
+        mapNode.failCount = 0;
         if (node.status === 'online') {
           mapNode.lastProbe = 'bridge:nemoclaw-status';
           if (!mapNode.agents.length) {
