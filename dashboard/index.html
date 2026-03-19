@@ -277,6 +277,7 @@ let W, H, dpr;
 let nodes = [];         // {id, name, url, role, status, x, y, vx, vy, agents:[], color, radius, pulsePhase}
 let connections = [];    // {from, to, particles:[], active}
 let particles = [];      // global floating particles
+let linkBursts = [];     // temporary connection flash effects
 let selectedNodeId = null;
 let hoveredNodeId = null;
 let mouseX = 0, mouseY = 0;
@@ -308,6 +309,11 @@ window.addEventListener('resize', resize);
 // ── Node Management ──
 let nodeSeq = 0;
 function addNode(name, url, role, token) {
+  // If first node is not master, auto-create a local master so topology is always visible
+  if (nodes.length === 0 && role !== 'master') {
+    addNode('Master Local', window.location.origin, 'master', '');
+  }
+
   const id = 'n' + (++nodeSeq);
   // Position: master at center, others in orbit
   const isMaster = role === 'master';
@@ -329,11 +335,15 @@ function addNode(name, url, role, token) {
   };
   nodes.push(node);
 
+  // Visual spawn burst so new nodes are immediately visible
+  for (let i = 0; i < 14; i++) spawnBurst(node.x, node.y, node.color);
+
   // Connect to master(s)
   if (!isMaster) {
     const masters = nodes.filter(n => n.role === 'master');
     masters.forEach(m => {
       connections.push({ from: m.id, to: id, particles: [], active: true, alpha: 0, spawnTime: Date.now() });
+      linkBursts.push({ from: m.id, to: id, life: 1.0, color: C.cyan });
     });
   }
 
@@ -398,9 +408,13 @@ async function pollNodeHealth(id) {
       if (wasOffline) {
         logEvent('success', `${node.name} is ONLINE`);
         // Spawn particles burst
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 14; i++) {
           spawnBurst(node.x, node.y, node.color);
         }
+        // Flash all links to/from this node
+        connections.filter(c => c.from === node.id || c.to === node.id).forEach(c => {
+          linkBursts.push({ from: c.from, to: c.to, life: 1.0, color: node.color });
+        });
       }
     } else {
       node.status = 'offline';
@@ -562,6 +576,16 @@ function drawNode(node, t) {
   ctx.lineWidth = isSelected ? 3 : 1.5;
   ctx.stroke();
 
+  // Connecting spinner ring
+  if (node.status === 'connecting') {
+    const a0 = (Date.now() / 280) % (Math.PI * 2);
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r + 8, a0, a0 + Math.PI * 1.2);
+    ctx.strokeStyle = hexToRgba(C.amber, 0.9 * a);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
   // Status indicator
   const statusColors = { online: C.green, offline: C.red, connecting: C.amber };
   const sc = statusColors[node.status] || C.dim;
@@ -641,20 +665,51 @@ function drawParticles() {
     p.life -= p.decay;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-    ctx.fillStyle = hexToRgba(p.color, p.life * 0.6);
+    ctx.fillStyle = hexToRgba(p.color, p.life * 0.8);
+    ctx.fill();
+  });
+}
+
+function drawLinkBursts() {
+  linkBursts = linkBursts.filter(b => b.life > 0);
+  linkBursts.forEach(b => {
+    const fromNode = nodes.find(n => n.id === b.from);
+    const toNode = nodes.find(n => n.id === b.to);
+    if (!fromNode || !toNode) return;
+
+    b.life -= 0.03;
+    const alpha = Math.max(0, b.life);
+    const lw = 2 + (1 - b.life) * 10;
+
+    // strong glow line
+    ctx.beginPath();
+    ctx.moveTo(fromNode.x, fromNode.y);
+    ctx.lineTo(toNode.x, toNode.y);
+    ctx.strokeStyle = hexToRgba(b.color || C.cyan, alpha * 0.9);
+    ctx.lineWidth = lw;
+    ctx.stroke();
+
+    // traveling pulse
+    const t = 1 - b.life;
+    const px = fromNode.x + (toNode.x - fromNode.x) * t;
+    const py = fromNode.y + (toNode.y - fromNode.y) * t;
+    ctx.beginPath();
+    ctx.arc(px, py, 5 + 12 * (1 - b.life), 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(b.color || C.cyan, alpha * 0.6);
     ctx.fill();
   });
 }
 
 function drawBackground(t) {
-  // Ambient floating particles
-  if (Math.random() < 0.02) {
+  // Ambient floating particles (more visible)
+  if (Math.random() < 0.06) {
     particles.push({
       x: Math.random() * W, y: Math.random() * H,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      life: 1, decay: 0.003,
-      color: C.cyan, size: 1.5
+      vx: (Math.random() - 0.5) * 0.45,
+      vy: (Math.random() - 0.5) * 0.45,
+      life: 1, decay: 0.0025,
+      color: Math.random() < 0.7 ? C.cyan : C.purple,
+      size: 1.8 + Math.random() * 1.2
     });
   }
 }
@@ -678,6 +733,7 @@ function render() {
   applyForces();
 
   connections.forEach(c => drawConnection(c, t));
+  drawLinkBursts();
   nodes.forEach(n => drawNode(n, t));
   drawParticles();
 
