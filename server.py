@@ -356,6 +356,52 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(200, {"reply": f"Error: {e}", "latency_ms": 0, "model": MODELS["super"]})
             return
 
+        if self.path == "/api/brev/create":
+            import subprocess, threading
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            instance_name = body.get("instanceName", "").strip()
+            instance_type = body.get("instanceType", "n1-standard-4")
+            provider = body.get("provider", "gcp")
+            api_key = body.get("apiKey", "")
+            nemo_name = body.get("nemoName", "agent")
+
+            if not instance_name:
+                self._json(400, {"error": "instanceName required"})
+                return
+
+            def run_brev():
+                try:
+                    result = subprocess.run(
+                        ["brev", "create", instance_name, "--provider", provider,
+                         "--min-disk", "256", "--type", instance_type],
+                        capture_output=True, text=True, timeout=300
+                    )
+                    if result.returncode != 0:
+                        return {"error": result.stderr or result.stdout}
+
+                    # Run NemoClaw setup in background
+                    setup_script = "/Users/saichi/Documents/AgentsForImpact/setup-nemoclaw.sh"
+                    subprocess.Popen(
+                        ["brev", "exec", instance_name, f"@{setup_script}"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    return {
+                        "instanceName": instance_name,
+                        "setupStatus": "NemoClaw install started in background",
+                        "url": None  # URL unknown until NemoClaw exposes endpoint
+                    }
+                except subprocess.TimeoutExpired:
+                    return {"error": "Timed out creating instance"}
+                except FileNotFoundError:
+                    return {"error": "brev CLI not found"}
+                except Exception as e:
+                    return {"error": str(e)}
+
+            result = run_brev()
+            self._json(200, result)
+            return
+
         self.send_response(404)
         self.end_headers()
 

@@ -237,29 +237,63 @@
 
 <!-- CONNECT MODAL -->
 <div class="modal-overlay" id="connectModal">
-  <div class="modal">
-    <h2>🔗 Connect Node</h2>
-    <div class="sub">Add an OpenClaw instance or agent server to the swarm</div>
+  <div class="modal" style="width:min(540px,94vw)">
+    <h2>＋ Add Agent Node</h2>
+    <div class="sub">Connect an existing node or spin up a new NemoClaw on Brev</div>
 
-    <label>Node Name</label>
-    <input id="nodeName" placeholder="e.g. DGX Spark, Brev GPU, My Laptop" />
+    <!-- Tab switcher -->
+    <div style="display:flex;gap:0;margin:16px 0 0;border-bottom:1px solid var(--border)">
+      <div id="tab-connect" onclick="switchNodeTab('connect')" style="padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--cyan);color:var(--cyan);text-transform:uppercase;letter-spacing:.5px">Connect Existing</div>
+      <div id="tab-brev" onclick="switchNodeTab('brev')" style="padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">🚀 Create on Brev</div>
+    </div>
 
-    <label>Endpoint URL</label>
-    <input id="nodeUrl" placeholder="http://hostname:port" value="http://localhost:8080" />
+    <!-- Connect existing -->
+    <div id="pane-connect">
+      <label>Node Name</label>
+      <input id="nodeName" placeholder="e.g. DGX Spark, Brev GPU, My Laptop" />
+      <label>Endpoint URL</label>
+      <input id="nodeUrl" placeholder="http://hostname:port" value="http://localhost:8080" />
+      <label>Role</label>
+      <select id="nodeRole">
+        <option value="slave">Slave (Worker)</option>
+        <option value="master">Master (Orchestrator)</option>
+        <option value="gateway">OpenClaw Gateway</option>
+      </select>
+      <label>Auth Token (optional)</label>
+      <input id="nodeToken" type="password" placeholder="Gateway token or API key" />
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeConnectModal()">Cancel</button>
+        <button class="btn btn-cyan" onclick="connectNode()">Connect</button>
+      </div>
+    </div>
 
-    <label>Role</label>
-    <select id="nodeRole">
-      <option value="slave">Slave (Worker)</option>
-      <option value="master">Master (Orchestrator)</option>
-      <option value="gateway">OpenClaw Gateway</option>
-    </select>
+    <!-- Create on Brev -->
+    <div id="pane-brev" style="display:none">
+      <label>Instance Name</label>
+      <input id="brevName" placeholder="nemoclaw-3" value="nemoclaw-" />
+      <label>Instance Type</label>
+      <select id="brevType">
+        <option value="n1-standard-4">n1-standard-4 (4 vCPU, 15 GB) — CPU</option>
+        <option value="n1-standard-8">n1-standard-8 (8 vCPU, 30 GB) — CPU</option>
+        <option value="g4dn.xlarge">g4dn.xlarge (T4 GPU)</option>
+        <option value="g5.xlarge">g5.xlarge (A10G GPU)</option>
+      </select>
+      <label>Provider</label>
+      <select id="brevProvider">
+        <option value="gcp">GCP</option>
+        <option value="aws">AWS</option>
+      </select>
+      <label>NVIDIA API Key</label>
+      <input id="brevApiKey" type="password" placeholder="nvapi-..." />
+      <label>NemoClaw Name</label>
+      <input id="brevNemoName" placeholder="testing123" value="testing123" />
 
-    <label>Auth Token (optional)</label>
-    <input id="nodeToken" type="password" placeholder="Gateway token or API key" />
+      <div id="brev-status" style="margin-top:12px;font-size:12px;color:var(--muted);min-height:40px;font-family:'JetBrains Mono',monospace;white-space:pre-wrap"></div>
 
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeConnectModal()">Cancel</button>
-      <button class="btn btn-cyan" onclick="connectNode()">Connect</button>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeConnectModal()">Cancel</button>
+        <button class="btn btn-nvidia" onclick="createBrevNode()" id="brev-create-btn">🚀 Create &amp; Connect</button>
+      </div>
     </div>
   </div>
 </div>
@@ -866,8 +900,26 @@ function toggleSidePanel() {
 }
 
 // Connect modal
-function openConnectModal() { document.getElementById('connectModal').classList.add('open'); document.getElementById('nodeName').focus(); }
-function closeConnectModal() { document.getElementById('connectModal').classList.remove('open'); }
+function openConnectModal() {
+  document.getElementById('connectModal').classList.add('open');
+  switchNodeTab('connect');
+  document.getElementById('nodeName').focus();
+}
+function closeConnectModal() {
+  document.getElementById('connectModal').classList.remove('open');
+  document.getElementById('brev-status').textContent = '';
+  document.getElementById('brev-create-btn').disabled = false;
+  document.getElementById('brev-create-btn').textContent = '🚀 Create & Connect';
+}
+
+function switchNodeTab(tab) {
+  document.getElementById('pane-connect').style.display = tab === 'connect' ? '' : 'none';
+  document.getElementById('pane-brev').style.display   = tab === 'brev'    ? '' : 'none';
+  document.getElementById('tab-connect').style.borderBottomColor = tab === 'connect' ? 'var(--cyan)' : 'transparent';
+  document.getElementById('tab-connect').style.color             = tab === 'connect' ? 'var(--cyan)' : 'var(--muted)';
+  document.getElementById('tab-brev').style.borderBottomColor   = tab === 'brev'    ? 'var(--nvidia)' : 'transparent';
+  document.getElementById('tab-brev').style.color               = tab === 'brev'    ? 'var(--nvidia)' : 'var(--muted)';
+}
 
 function connectNode() {
   const name = document.getElementById('nodeName').value.trim() || 'Node ' + (nodes.length + 1);
@@ -877,10 +929,63 @@ function connectNode() {
   if (!url) return;
   addNode(name, url, role, token);
   closeConnectModal();
-  // Reset form
   document.getElementById('nodeName').value = '';
   document.getElementById('nodeUrl').value = 'http://localhost:8080';
   document.getElementById('nodeToken').value = '';
+}
+
+async function createBrevNode() {
+  const instanceName = document.getElementById('brevName').value.trim();
+  const instanceType = document.getElementById('brevType').value;
+  const provider = document.getElementById('brevProvider').value;
+  const apiKey = document.getElementById('brevApiKey').value.trim();
+  const nemoName = document.getElementById('brevNemoName').value.trim() || 'agent-' + Date.now();
+
+  if (!instanceName) { alert('Enter an instance name'); return; }
+
+  const btn = document.getElementById('brev-create-btn');
+  const status = document.getElementById('brev-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Creating...';
+
+  const log = (msg) => { status.textContent += msg + '\n'; };
+
+  log(`→ Requesting Brev instance "${instanceName}"...`);
+  try {
+    const res = await fetch('/api/brev/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instanceName, instanceType, provider, apiKey, nemoName })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      log('✗ Error: ' + data.error);
+      btn.disabled = false;
+      btn.textContent = '🚀 Create & Connect';
+      return;
+    }
+
+    log(`✓ Instance created: ${data.instanceName}`);
+    log(`→ Installing NemoClaw...`);
+    log(data.setupStatus || 'Setup initiated (runs in background)');
+
+    if (data.url) {
+      log(`✓ Endpoint: ${data.url}`);
+      addNode(instanceName, data.url, 'slave', '');
+      log(`✓ Added to swarm!`);
+      btn.textContent = '✓ Done';
+      setTimeout(() => closeConnectModal(), 2000);
+    } else {
+      log('⚠ Instance created — connect manually once NemoClaw is up.');
+      btn.disabled = false;
+      btn.textContent = '🚀 Create Another';
+    }
+  } catch (e) {
+    log('✗ Request failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '🚀 Create & Connect';
+  }
 }
 
 // Enter key in modal

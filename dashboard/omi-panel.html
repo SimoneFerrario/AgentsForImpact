@@ -201,17 +201,30 @@
     </div>
   </div>
 
-  <!-- Panel 3: Terminal (Brev/VNC embed placeholder) -->
-  <div class="panel" id="terminal-panel">
-    <div class="panel-header">
-      <div class="indicator" id="terminal-indicator"></div>
-      💻 Terminal (Brev)
+  <!-- Panel 3: VNC / Terminal -->
+  <div class="panel" id="terminal-panel" style="position:relative">
+    <div class="panel-header" style="justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="indicator" id="terminal-indicator"></div>
+        💻 Agent Terminal
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="vnc-target" onchange="loadVNC()" style="background:#050510;color:#5555aa;border:1px solid #1e1e3a;border-radius:4px;font-size:10px;padding:2px 6px;font-family:'Courier New',monospace">
+          <option value="">— select instance —</option>
+          <option value="nemoclaw-1">nemoclaw-1</option>
+          <option value="nemoclaw-2">nemoclaw-2</option>
+        </select>
+        <button onclick="loadVNC()" style="background:#12122a;border:1px solid #1e1e3a;color:#5555aa;font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer">↺</button>
+      </div>
     </div>
-    <div class="panel-body" id="terminal-body">
-      <div class="terminal-line sys">// Embed Brev VNC here or pipe terminal output via WebSocket</div>
-      <div class="terminal-line sys">// endpoint: ws://&lt;bridge&gt;/ws → type:terminal events</div>
-      <br>
-      <div class="terminal-line">ubuntu@nemoclaw-box:~$ <span id="cursor">▌</span></div>
+    <div id="vnc-container" style="flex:1;position:relative;background:#050510">
+      <div id="vnc-placeholder" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#2a2a4a;font-size:12px;gap:8px">
+        <div>Select an instance above to open terminal</div>
+        <div style="font-size:10px">Uses <code style="color:#3a3a6a">brev shell</code> via noVNC</div>
+      </div>
+      <iframe id="vnc-frame" src="" style="display:none;width:100%;height:100%;border:none"></iframe>
+      <!-- Live terminal log fallback -->
+      <div class="panel-body" id="terminal-body" style="display:none;font-size:11px"></div>
     </div>
   </div>
 
@@ -430,11 +443,37 @@
     }
   }
 
-  // Blinking cursor
-  setInterval(() => {
-    const c = document.getElementById('cursor');
-    if (c) c.style.opacity = c.style.opacity === '0' ? '1' : '0';
-  }, 500);
+  // --- VNC / Terminal ---
+  function loadVNC() {
+    const target = document.getElementById('vnc-target').value;
+    const frame = document.getElementById('vnc-frame');
+    const placeholder = document.getElementById('vnc-placeholder');
+    const termBody = document.getElementById('terminal-body');
+
+    if (!target) {
+      frame.style.display = 'none';
+      termBody.style.display = 'none';
+      placeholder.style.display = 'flex';
+      return;
+    }
+
+    document.getElementById('terminal-indicator').classList.add('active');
+
+    // Try noVNC URL first (Brev exposes it on port 6080)
+    // Fall back to log streaming via WebSocket
+    const brevVncUrl = `/api/vnc/${target}`;
+    frame.src = brevVncUrl;
+    frame.style.display = 'block';
+    placeholder.style.display = 'none';
+    termBody.style.display = 'none';
+
+    frame.onerror = () => {
+      // noVNC not available — fall back to terminal log stream
+      frame.style.display = 'none';
+      termBody.style.display = 'block';
+      addTerminal(`[${target}] VNC not available — streaming logs via WebSocket`, 'sys');
+    };
+  }
 
   connect();
   checkHealth();
