@@ -585,11 +585,15 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def _json(self, code, data):
-        self.send_response(code)
-        self._cors()
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        try:
+            self.send_response(code)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected mid-response; avoid noisy stack traces
+            pass
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")

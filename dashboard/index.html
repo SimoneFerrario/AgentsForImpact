@@ -121,6 +121,9 @@
     .swarm-composer input{flex:1;padding:11px 12px;border-radius:10px;background:#0b1326;color:var(--text);border:1px solid var(--border);font-size:12px;outline:none}
     .swarm-composer input:focus{border-color:var(--cyan)}
     .swarm-status{position:absolute;left:16px;top:12px;z-index:20;font-size:11px;color:var(--muted);background:rgba(8,14,24,.75);border:1px solid var(--border);border-radius:999px;padding:6px 10px}
+    #swarmCanvas{touch-action:none;cursor:grab}
+    .map-controls{position:absolute;right:16px;top:12px;z-index:21;display:flex;gap:6px}
+    .map-controls button{border:1px solid var(--border2);background:rgba(8,14,24,.82);color:var(--text);border-radius:8px;padding:6px 9px;cursor:pointer}
 
     /* Pipeline input area */
     .pipeline-input{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;background:var(--bg2)}
@@ -205,6 +208,11 @@
   <div class="swarm-view active" id="swarmView">
     <canvas id="swarmCanvas"></canvas>
     <div class="swarm-status" id="swarmStatus">Ready • type a task and distribute to online nodes</div>
+    <div class="map-controls">
+      <button onclick="zoomBy(1.15)">＋</button>
+      <button onclick="zoomBy(0.87)">－</button>
+      <button onclick="resetView()">Reset</button>
+    </div>
     <div class="swarm-composer">
       <input id="swarmTaskInput" placeholder="Write here to split work/resources across connected nodes..." onkeydown="if(event.key==='Enter')dispatchSwarmTask()"/>
       <button class="btn btn-cyan" onclick="dispatchSwarmTask()">Dispatch</button>
@@ -1233,23 +1241,33 @@ canvas.addEventListener('mouseup', () => { dragNode = null; panMode = false; can
 window.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
 canvas.addEventListener('mouseleave', () => { dragNode = null; panMode = false; hoveredNodeId = null; });
 
+function zoomAt(sx, sy, factor){
+  const before = toWorld(sx, sy);
+  const newScale = Math.min(2.6, Math.max(0.35, view.scale * factor));
+  view.scale = newScale;
+  view.x = sx - before.x * view.scale;
+  view.y = sy - before.y * view.scale;
+  const s = document.getElementById('swarmStatus');
+  if (s) s.textContent = `View: zoom ${(view.scale*100).toFixed(0)}% • nodes ${nodes.length}`;
+}
+
+function zoomBy(factor){
+  zoomAt(W/2, H/2, factor);
+}
+
+function resetView(){
+  view.scale = 1;
+  view.x = 0;
+  view.y = 0;
+  layoutNodes();
+}
+
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-
-  const before = toWorld(sx, sy);
-  const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-  const newScale = Math.min(2.6, Math.max(0.35, view.scale * zoomFactor));
-
-  // cursor-anchored zoom (stable)
-  view.scale = newScale;
-  view.x = sx - before.x * view.scale;
-  view.y = sy - before.y * view.scale;
-
-  const s = document.getElementById('swarmStatus');
-  if (s) s.textContent = `View: zoom ${(view.scale*100).toFixed(0)}% • nodes ${nodes.length}`;
+  zoomAt(sx, sy, e.deltaY < 0 ? 1.12 : 0.88);
 }, { passive: false });
 
 // ── Helpers ──
@@ -1629,6 +1647,12 @@ async function dispatchSwarmTask() {
   }
 
   status.textContent = `Dispatching across ${online.length} node(s)...`;
+  let dot=0;
+  const thinkingTimer = setInterval(()=>{
+    dot=(dot+1)%4;
+    status.textContent = `Dispatching${'.'.repeat(dot)}  ${online.length} node(s) responding`;
+  }, 350);
+
   lastDispatch = `${new Date().toLocaleTimeString()} • ${task.slice(0, 70)}`;
   taskCount += 1;
   updateKPIs();
@@ -1687,6 +1711,7 @@ async function dispatchSwarmTask() {
   });
 
   const results = await Promise.all(promises);
+  clearInterval(thinkingTimer);
   const ok = results.filter(r => r.ok).length;
   status.textContent = `Done: ${online.length} nodes • ${ok} executed • ${online.length - ok} delegated`;
   logEvent('info', `Task split complete: ${ok}/${online.length} nodes executed`);
