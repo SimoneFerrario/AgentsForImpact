@@ -295,12 +295,15 @@ async def receive_transcript(request: Request):
         data = {"raw": raw.decode()}
 
     ts = datetime.now().strftime("%H:%M:%S")
-    text = (
-        data.get("text") or
-        data.get("transcript") or
-        str(data.get("segments", "")) or
-        str(data)
-    )
+
+    # Extract text from Omi segment format
+    text = ""
+    if "segments" in data and isinstance(data["segments"], list):
+        text = " ".join(s.get("text", "") for s in data["segments"] if s.get("text"))
+    if not text:
+        text = data.get("text") or data.get("transcript") or str(data)
+
+    text = text.strip()
     logger.info(f"[TRANSCRIPT {ts}] 🎙️  {text}")
     print(f"\n[{ts}] 🎙️  {text}", flush=True)
     await broadcast({"type": "transcript", "text": text, "ts": ts})
@@ -353,6 +356,7 @@ async def get_nodes():
     return {"nodes": [
         {"name": "nemoclaw-1", "url": "https://necessity-attraction-atmosphere-champion.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
+        {"name": "nemoclaw-joe", "url": "https://administrators-trading-like-shanghai.trycloudflare.com", "role": "slave", "ttydUrl": "https://correctly-rock-produces-accessory.trycloudflare.com"},
     ]}
 
 
