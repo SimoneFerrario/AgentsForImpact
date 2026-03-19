@@ -354,9 +354,8 @@ async def nemoclaw_status():
 async def get_nodes():
     """Return known agent nodes for auto-registration in the swarm UI."""
     return {"nodes": [
-        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com", "role": "slave", "ttydUrl": "https://broken-partly-principles-nicole.trycloudflare.com"},
+        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com", "role": "slave", "ttydUrl": "https://upgrade-playback-hear-chef.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
-        {"name": "nemoclaw-joe", "url": "https://administrators-trading-like-shanghai.trycloudflare.com", "role": "slave", "ttydUrl": "https://correctly-rock-produces-accessory.trycloudflare.com"},
     ]}
 
 
