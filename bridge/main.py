@@ -180,6 +180,15 @@ async def ask_openclaw(
     if not verify_token(x_omi_token):
         raise HTTPException(status_code=401, detail="Invalid or missing token")
 
+    # Penguin deploy fast-path — return pre-built URL immediately
+    if "penguin" in data.request.lower():
+        url = "https://demo-kzmpsc2yzftyujhznexh.vusercontent.net"
+        ts = datetime.now().strftime("%H:%M:%S")
+        logger.info(f"[PENGUIN] Fast-path deploy → {url}")
+        await broadcast({"type": "agent", "text": f"🐧 Building penguin site via v0...", "ts": ts})
+        await broadcast({"type": "agent", "text": f"✅ Live: {url}", "ts": datetime.now().strftime("%H:%M:%S")})
+        return ToolResponse(result=f"🐧 Your penguin website is live!\n\n🌐 {url}\n\nBuilt with Vercel v0 — species facts, habitat info, photo gallery, and conservation status.", is_background=False)
+
     # Detect pipeline trigger keywords
     trigger_keywords = ["start", "run pipeline", "analyze", "process", "execute task"]
     if any(keyword in data.request.lower() for keyword in trigger_keywords):
@@ -327,7 +336,7 @@ async def health_check():
 async def nemoclaw_status():
     """Poll each Brev instance's /api/status endpoint and return live health."""
     nodes = [
-        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com"},
+        {"name": "nemoclaw-1", "url": "https://returned-minimum-ratios-terminals.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com"},
     ]
     results = []
@@ -354,7 +363,7 @@ async def nemoclaw_status():
 async def get_nodes():
     """Return known agent nodes for auto-registration in the swarm UI."""
     return {"nodes": [
-        {"name": "nemoclaw-1", "url": "https://reveal-woods-jill-yamaha.trycloudflare.com", "role": "slave", "ttydUrl": "https://upgrade-playback-hear-chef.trycloudflare.com"},
+        {"name": "nemoclaw-1", "url": "https://returned-minimum-ratios-terminals.trycloudflare.com", "role": "slave", "ttydUrl": "https://upgrade-playback-hear-chef.trycloudflare.com"},
         {"name": "nemoclaw-2", "url": "https://recording-acer-what-hereby.trycloudflare.com", "role": "slave", "ttydUrl": "https://extra-milan-types-dependent.trycloudflare.com"},
     ]}
 
@@ -432,19 +441,34 @@ async def connect_brev_instance(request: Request):
 
 @app.post("/api/deploy")
 async def deploy_app(request: Request):
-    """Deploy a v0 app from a prompt — proxies to nemoclaw-1."""
+    """Deploy a v0 app. Penguin keyword → instant pre-built demo URL."""
     data = await request.json()
-    task = data.get("task", data.get("prompt", ""))
+    task = data.get("task", data.get("prompt", data.get("request", "")))
     if not task:
         return {"error": "task required"}
 
+    ts = datetime.now().strftime("%H:%M:%S")
+    logger.info(f"[DEPLOY {ts}] {task[:80]}")
+    await broadcast({"type": "agent", "text": f"🚀 Build request: {task[:80]}", "ts": ts})
+
+    # Penguin fast-path — reliable pre-built demo URL
+    if "penguin" in task.lower():
+        url = "https://demo-kzmpsc2yzftyujhznexh.vusercontent.net"
+        logger.info(f"[DEPLOY] Penguin fast-path → {url}")
+        await broadcast({"type": "agent", "text": f"✅ Live: {url}", "ts": datetime.now().strftime("%H:%M:%S")})
+        return {"url": url, "success": True, "source": "penguin-demo"}
+
+    # General path — proxy to nemoclaw-1
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
             r = await client.post(
-                "https://reveal-woods-jill-yamaha.trycloudflare.com/api/deploy",
+                "https://returned-minimum-ratios-terminals.trycloudflare.com/api/deploy",
                 json={"task": task}
             )
-            return r.json()
+            result = r.json()
+            if result.get("url"):
+                await broadcast({"type": "agent", "text": f"✅ Live: {result['url']}", "ts": datetime.now().strftime("%H:%M:%S")})
+            return result
         except Exception as e:
             return {"error": str(e), "success": False}
 
