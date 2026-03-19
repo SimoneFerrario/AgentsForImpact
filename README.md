@@ -54,6 +54,40 @@ python server.py --port 8080
 | `/api/status` | GET | Agent status and stats |
 | `/api/history` | GET | Pipeline run history |
 
+## Omi Voice Integration
+
+The dashboard supports hands-free voice dispatch via an [Omi](https://www.omi.me/) wearable device and the included bridge server.
+
+### How it works
+
+```
+Omi device → POST /transcript → bridge (port 8081) → WebSocket /ws → Dashboard Omi Mode toggle
+```
+
+1. Start the bridge: `python -m uvicorn bridge.main:app --host 0.0.0.0 --port 8081`
+2. Expose it: `ngrok http 8081`
+3. Configure the Omi app webhook to `POST https://<your-ngrok>/transcript`
+4. Open the dashboard and click **🎙️ Omi Mode** — button turns green when connected
+5. Say **"Hey OpenClaw, \<your task\>"** — the command auto-fills and runs the pipeline
+
+### Transcript endpoint (ngrok)
+
+```
+POST https://unleased-unambiguously-jenice.ngrok-free.dev/transcript
+Content-Type: application/json
+{"text": "Hey OpenClaw, run a climate analysis"}
+```
+
+### Test scripts
+
+```bash
+# Smoke-test the ngrok endpoint
+./test-omi-transcription.sh --test-send
+
+# Stream live transcripts from bridge via WebSocket (requires websocat)
+./test-omi-transcription.sh
+```
+
 ## License
 
 MIT
