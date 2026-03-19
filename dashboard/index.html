@@ -264,11 +264,29 @@
     </div>
   </div>
 
+  <!-- NODE RESPONSE POPUP -->
+  <div id="nodeResponseOverlay" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(4,6,12,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center" onclick="if(event.target===this)closeNodeResponsePopup()">
+    <div style="width:min(600px,92vw);max-height:80vh;background:linear-gradient(180deg,#0f1a2f,#0a1220);border:1px solid var(--border2);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div id="nodePopupDot" style="width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);flex-shrink:0"></div>
+        <div id="nodePopupTitle" style="font-weight:800;font-size:14px;flex:1"></div>
+        <div id="nodePopupMeta" style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace"></div>
+        <button onclick="closeNodeResponsePopup()" style="border:none;background:rgba(255,255,255,.06);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">✕</button>
+      </div>
+      <div id="nodePopupBody" style="flex:1;overflow-y:auto;padding:18px;font-size:12px;line-height:1.8;color:var(--text);white-space:pre-wrap;scrollbar-width:thin;scrollbar-color:var(--border) transparent;font-family:'JetBrains Mono',monospace"></div>
+    </div>
+  </div>
+
   <!-- MONITOR VIEW -->
   <div class="monitor-view" id="monitorView">
-    <div class="monitor-header">
-      <h2>🖥️ Live Agent Terminals</h2>
-      <span class="monitor-sub">Embedded ttyd sessions — watch every agent in real time</span>
+    <div class="monitor-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div>
+        <h2>🖥️ Live Agent Terminals</h2>
+        <span class="monitor-sub">Embedded ttyd sessions — watch every agent in real time</span>
+      </div>
+      <button class="btn btn-cyan" id="refreshAllBtn" onclick="refreshAllTerminals()" style="flex-shrink:0;display:flex;align-items:center;gap:6px;font-size:13px;padding:10px 18px">
+        <span id="refreshAllIcon" style="font-size:16px;display:inline-block">↺</span> Refresh All Terminals
+      </button>
     </div>
     <!-- NemoClaw node health bar -->
     <div id="nemoStatusBar" style="display:flex;gap:10px;padding:8px 20px;background:rgba(0,0,0,.25);border-bottom:1px solid var(--border);align-items:center;flex-shrink:0;flex-wrap:wrap">
@@ -442,6 +460,7 @@ let nodeWorkingUntil = {}; // nodeId -> timestamp (for animated "working" ring)
 let nodeStreamingUntil = {}; // nodeId -> timestamp (moving dots while waiting response)
 let nodeWorkStartedAt = {}; // nodeId -> timestamp (enforce minimum pulse visibility)
 let lastResponses = []; // [{nodeId, nodeName, text, ts, pending}]
+let nodeResponses = {}; // nodeId -> {text, ts, nodeName} — latest response per node
 let responseDotsTick = 0;
 
 // Colors
@@ -967,6 +986,31 @@ function drawNode(node, t) {
     ctx.stroke();
   }
 
+  // Response badge (💬) — shown when node has a response
+  if (nodeResponses[node.id]) {
+    const bx = node.x - r * 0.65;
+    const by = node.y - r * 0.65;
+    const brad = 8;
+    // Pulsing glow
+    ctx.beginPath();
+    ctx.arc(bx, by, brad + 3 + Math.sin(t * 3 + node.pulsePhase) * 2, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(C.green, 0.18 * a);
+    ctx.fill();
+    // Badge circle
+    ctx.beginPath();
+    ctx.arc(bx, by, brad, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba('#0d1a0d', 0.95 * a);
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(C.green, 0.9 * a);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Emoji
+    ctx.font = `${brad * 1.3}px Inter`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💬', bx, by);
+  }
+
   // Icon/text
   ctx.font = `${Math.round(r * 0.6)}px Inter`;
   ctx.textAlign = 'center';
@@ -1286,6 +1330,8 @@ canvas.addEventListener('mousedown', e => {
       dragNode = n;
       dragOffX = n.x - mouseX;
       dragOffY = n.y - mouseY;
+      n._dragStartX = n.x;
+      n._dragStartY = n.y;
       selectedNodeId = n.id;
       renderNodeList();
       return;
@@ -1301,7 +1347,13 @@ canvas.addEventListener('mousedown', e => {
   renderNodeList();
 });
 
-canvas.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
+canvas.addEventListener('mouseup', e => {
+  const wasDragging = dragNode && (Math.abs(dragNode.x - (dragNode._dragStartX||dragNode.x)) > 4 || Math.abs(dragNode.y - (dragNode._dragStartY||dragNode.y)) > 4);
+  if (!wasDragging && dragNode && nodeResponses[dragNode.id]) {
+    showNodeResponsePopup(dragNode);
+  }
+  dragNode = null; panMode = false; canvas.style.cursor = 'grab';
+});
 window.addEventListener('mouseup', () => { dragNode = null; panMode = false; canvas.style.cursor = 'grab'; });
 canvas.addEventListener('mouseleave', () => { dragNode = null; panMode = false; hoveredNodeId = null; });
 
@@ -1422,6 +1474,67 @@ function switchTab(tab) {
   requestAnimationFrame(()=>{ resize(); layoutNodes(); });
   if (tab === 'monitor') renderMonitor();
 }
+
+function refreshAllTerminals() {
+  const btn = document.getElementById('refreshAllBtn');
+  const icon = document.getElementById('refreshAllIcon');
+  if (!btn) return;
+
+  // Spin the icon and disable briefly
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+  let angle = 0;
+  const spinInterval = setInterval(() => {
+    angle = (angle + 30) % 360;
+    if (icon) icon.style.transform = `rotate(${angle}deg)`;
+  }, 50);
+
+  // Collect all monitor iframes
+  const iframes = document.querySelectorAll('#monitorGrid .agent-card-iframe');
+  let reloaded = 0;
+  iframes.forEach((iframe, i) => {
+    // Stagger slightly to avoid hammering all at once
+    setTimeout(() => {
+      const src = iframe.src;
+      iframe.src = '';
+      setTimeout(() => { iframe.src = src; }, 80);
+      reloaded++;
+      if (reloaded === iframes.length) {
+        logEvent('info', `↺ Refreshed ${reloaded} terminal${reloaded !== 1 ? 's' : ''}`);
+      }
+    }, i * 120);
+  });
+
+  if (iframes.length === 0) {
+    logEvent('warn', 'No terminals to refresh — are any nodes connected with ttyd?');
+  }
+
+  // Re-enable after all reloads complete
+  const totalDelay = iframes.length * 120 + 800;
+  setTimeout(() => {
+    clearInterval(spinInterval);
+    btn.disabled = false;
+    btn.style.opacity = '';
+    if (icon) icon.style.transform = '';
+  }, totalDelay);
+}
+
+function showNodeResponsePopup(node) {
+  const resp = nodeResponses[node.id];
+  if (!resp) return;
+  const overlay = document.getElementById('nodeResponseOverlay');
+  document.getElementById('nodePopupTitle').textContent = `${node.name} — Response`;
+  document.getElementById('nodePopupMeta').textContent = `${resp.ts}${resp.latency ? ' • ' + resp.latency + 'ms' : ''}`;
+  document.getElementById('nodePopupBody').textContent = resp.text;
+  overlay.style.display = 'flex';
+}
+
+function closeNodeResponsePopup() {
+  document.getElementById('nodeResponseOverlay').style.display = 'none';
+}
+
+// ESC to close
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNodeResponsePopup(); });
 
 function renderMonitor() {
   const grid = document.getElementById('monitorGrid');
@@ -1906,13 +2019,18 @@ async function dispatchSwarmTask() {
   status.textContent = `Done: ${online.length} nodes • ${ok} executed • ${online.length - ok} delegated`;
   logEvent('info', `Task split complete: ${ok}/${online.length} nodes executed`);
 
-  // Store responses for side panel (resolve pending rows)
+  // Store responses for side panel (resolve pending rows) + per-node popup
   results.forEach(r => {
+    const responseText = r.response ? (typeof r.response === 'string' ? r.response : JSON.stringify(r.response)) : 'No response payload';
+    // Store per-node for canvas popup
+    if (r.nodeId) {
+      nodeResponses[r.nodeId] = { text: responseText, ts: new Date().toLocaleTimeString(), nodeName: r.node, latency: r.latency || 0 };
+    }
     const idx = lastResponses.findIndex(x => x.nodeId === r.nodeId && x.pending);
     if (idx >= 0) {
       lastResponses[idx] = {
         ...lastResponses[idx],
-        text: r.response ? (typeof r.response === 'string' ? r.response : JSON.stringify(r.response)) : 'No response payload',
+        text: responseText,
         ts: new Date().toLocaleTimeString(),
         latency: r.latency || 0,
         pending: false
@@ -1988,6 +2106,33 @@ async function runPipeline() {
     renderTrace([{ role: 'orchestrator', data: result, latency_ms: null, model: 'kaji/bridge' }]);
     logEvent('success', `[Kaji] Pipeline complete: "${task.slice(0, 40)}..."`);
 
+    // Check for deploy URL in result
+    try {
+      const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+      const deployUrl = parsed.url || (typeof result === 'string' && result.match(/https?:\/\/[^\s]+/)?.[0]);
+      if (deployUrl) {
+        logEvent('success', `🚀 Deployed: ${deployUrl}`);
+        const link = document.createElement('a');
+        link.href = deployUrl;
+        link.target = '_blank';
+        link.textContent = `🌐 Open App: ${deployUrl}`;
+        link.style.cssText = 'display:block;color:#38d9ff;margin-top:8px;';
+        document.getElementById('resultArea')?.appendChild(link);
+      }
+    } catch (_) {
+      // result wasn't JSON, check string for URL
+      const urlMatch = typeof result === 'string' && result.match(/https?:\/\/[^\s"]+/);
+      if (urlMatch) {
+        logEvent('success', `🚀 Deployed: ${urlMatch[0]}`);
+        const link = document.createElement('a');
+        link.href = urlMatch[0];
+        link.target = '_blank';
+        link.textContent = `🌐 Open App: ${urlMatch[0]}`;
+        link.style.cssText = 'display:block;color:#38d9ff;margin-top:8px;';
+        document.getElementById('resultArea')?.appendChild(link);
+      }
+    }
+
     // Burst on master node
     const master = nodes.find(n => n.role === 'master');
     if (master) { for (let i = 0; i < 12; i++) spawnBurst(master.x, master.y, C.nvidia); }
@@ -2011,6 +2156,17 @@ async function runPipeline() {
       document.getElementById('resultArea').innerHTML = formatResult(j.final_answer || 'No response.');
       renderTrace(j.agents || []);
       logEvent('success', `[Fallback] Pipeline complete: "${task.slice(0, 40)}..." (${j.total_ms}ms)`);
+
+      // Check for deploy URL in fallback result
+      if (j.url) {
+        logEvent('success', `🚀 Deployed: ${j.url}`);
+        const link = document.createElement('a');
+        link.href = j.url;
+        link.target = '_blank';
+        link.textContent = `🌐 Open App: ${j.url}`;
+        link.style.cssText = 'display:block;color:#38d9ff;margin-top:8px;';
+        document.getElementById('resultArea')?.appendChild(link);
+      }
 
       // Burst on master node
       const master = nodes.find(n => n.role === 'master');
