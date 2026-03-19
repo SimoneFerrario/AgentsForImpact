@@ -1054,14 +1054,10 @@ async function createBrevNode() {
 
   if (!instanceName) { alert('Enter an instance name'); return; }
 
-  const btn = document.getElementById('brev-create-btn');
-  const status = document.getElementById('brev-status');
-  btn.disabled = true;
-  btn.textContent = '⏳ Creating...';
+  // Close modal immediately, work in background
+  closeConnectModal();
+  logEvent('info', `⏳ Creating Brev instance "${instanceName}" (${instanceType})...`);
 
-  const log = (msg) => { status.textContent += msg + '\n'; };
-
-  log(`→ Requesting Brev instance "${instanceName}"...`);
   try {
     const res = await fetch('/api/brev/create', {
       method: 'POST',
@@ -1071,31 +1067,23 @@ async function createBrevNode() {
     const data = await res.json();
 
     if (data.error) {
-      log('✗ Error: ' + data.error);
-      btn.disabled = false;
-      btn.textContent = '🚀 Create & Connect';
+      logEvent('error', `✗ Brev "${instanceName}": ${data.error}`);
       return;
     }
 
-    log(`✓ Instance created: ${data.instanceName}`);
-    log(`→ Installing NemoClaw...`);
-    log(data.setupStatus || 'Setup initiated (runs in background)');
+    logEvent('success', `✓ Instance "${instanceName}" created on ${provider}`);
+    logEvent('info', `→ NemoClaw install running in background...`);
 
     if (data.url) {
-      log(`✓ Endpoint: ${data.url}`);
       addNode(instanceName, data.url, 'slave', '');
-      log(`✓ Added to swarm!`);
-      btn.textContent = '✓ Done';
-      setTimeout(() => closeConnectModal(), 2000);
+      logEvent('success', `✓ "${instanceName}" added to swarm at ${data.url}`);
     } else {
-      log('⚠ Instance created — connect manually once NemoClaw is up.');
-      btn.disabled = false;
-      btn.textContent = '🚀 Create Another';
+      logEvent('info', `⚠ "${instanceName}" will appear in swarm once NemoClaw is ready`);
+      // Add as pending node
+      addNode(instanceName, `http://${instanceName}:8080`, 'slave', '');
     }
   } catch (e) {
-    log('✗ Request failed: ' + e.message);
-    btn.disabled = false;
-    btn.textContent = '🚀 Create & Connect';
+    logEvent('error', `✗ Brev create failed: ${e.message}`);
   }
 }
 
