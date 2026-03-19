@@ -435,7 +435,8 @@ let workloadByNode = {}; // nodeId -> {units, tasks}
 let lastDispatch = null;
 let nodeWorkingUntil = {}; // nodeId -> timestamp (for animated "working" ring)
 let nodeStreamingUntil = {}; // nodeId -> timestamp (moving dots while waiting response)
-let lastResponses = []; // [{nodeId, nodeName, text, ts}]
+let lastResponses = []; // [{nodeId, nodeName, text, ts, pending}]
+let responseDotsTick = 0;
 
 // Colors
 const C = {
@@ -1222,7 +1223,8 @@ canvas.addEventListener('mousemove', e => {
   hoveredNodeId = null;
   for (const n of nodes) {
     const dx = mouseX - n.x, dy = mouseY - n.y;
-    if (Math.sqrt(dx * dx + dy * dy) < n.radius * 1.3) {
+    const hitR = n.radius * 1.3 + (12 / Math.max(0.45, view.scale));
+    if (Math.sqrt(dx * dx + dy * dy) < hitR) {
       hoveredNodeId = n.id;
       canvas.style.cursor = 'pointer';
       return;
@@ -1241,7 +1243,8 @@ canvas.addEventListener('mousedown', e => {
 
   for (const n of nodes) {
     const dx = mouseX - n.x, dy = mouseY - n.y;
-    if (Math.sqrt(dx * dx + dy * dy) < n.radius * 1.3) {
+    const hitR = n.radius * 1.3 + (12 / Math.max(0.45, view.scale));
+    if (Math.sqrt(dx * dx + dy * dy) < hitR) {
       dragNode = n;
       dragOffX = n.x - mouseX;
       dragOffY = n.y - mouseY;
@@ -1704,21 +1707,35 @@ function renderSideTab() {
     box.innerHTML = '<div style="color:var(--dim);font-size:11px;padding:6px">No responses yet. Dispatch a task to see model outputs.</div>';
     return;
   }
-  box.innerHTML = lastResponses.map(r => `
-    <div style="margin-bottom:10px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-weight:700;font-size:11px;color:var(--cyan)">${esc(r.nodeName)}</span>
-        <span style="font-size:9px;color:var(--dim)">${r.ts} • ${r.latency}ms</span>
+  responseDotsTick = (responseDotsTick + 1) % 4;
+  box.innerHTML = lastResponses.map(r => {
+    const dots = '.'.repeat(Math.max(1, responseDotsTick));
+    const pendingLabel = r.pending ? ` <span style="color:var(--cyan)">thinking${dots}</span>` : '';
+    const body = r.pending
+      ? `<div style="display:flex;align-items:center;gap:6px;color:var(--cyan);font-size:11px"><span>●</span><span>●</span><span>●</span><span style="color:var(--muted)">generating response${dots}</span></div>`
+      : `<div style="font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(typeof r.text === 'string' ? r.text : JSON.stringify(r.text,null,2))}</div>`;
+    return `
+      <div style="margin-bottom:10px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-weight:700;font-size:11px;color:var(--cyan)">${esc(r.nodeName)}${pendingLabel}</span>
+          <span style="font-size:9px;color:var(--dim)">${r.ts}${r.pending ? '' : (' • ' + r.latency + 'ms')}</span>
+        </div>
+        ${body}
       </div>
-      <div style="font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(typeof r.text === 'string' ? r.text : JSON.stringify(r.text,null,2))}</div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
   // Flash the responses tab if not active
   if (activeSideTab !== 'responses') {
     const tab = document.querySelector('[data-stab="responses"]');
     if (tab) { tab.style.color = 'var(--green)'; setTimeout(()=>{ if(activeSideTab!=='responses') tab.style.color = 'var(--muted)'; }, 2000); }
   }
 }
+
+setInterval(()=>{
+  if (activeSideTab === 'responses' && lastResponses.some(r => r.pending)) {
+    renderSideTab();
+  }
+}, 350);
 
 async function dispatchSwarmTask() {
   const input = document.getElementById('swarmTaskInput');
@@ -1762,6 +1779,18 @@ async function dispatchSwarmTask() {
     // Mark node as "working/streaming" with animated rings
     nodeWorkingUntil[n.id] = Date.now() + 12000;
     nodeStreamingUntil[n.id] = Date.now() + 12000;
+
+    // Add pending response row (with animated dots in Responses tab)
+    lastResponses.unshift({
+      nodeId: n.id,
+      nodeName: n.name,
+      text: '',
+      ts: new Date().toLocaleTimeString(),
+      latency: 0,
+      pending: true
+    });
+    while (lastResponses.length > 30) lastResponses.pop();
+    renderSideTab();
 
     // visual effect on node and links
     for (let k = 0; k < 12; k++) spawnBurst(n.x, n.y, n.color);
@@ -1811,9 +1840,20 @@ async function dispatchSwarmTask() {
   status.textContent = `Done: ${online.length} nodes • ${ok} executed • ${online.length - ok} delegated`;
   logEvent('info', `Task split complete: ${ok}/${online.length} nodes executed`);
 
-  // Store responses for side panel
+  // Store responses for side panel (resolve pending rows)
   results.forEach(r => {
-    if (r.response) lastResponses.unshift({ nodeId: r.nodeId, nodeName: r.node, text: typeof r.response === 'string' ? r.response : JSON.stringify(r.response), ts: new Date().toLocaleTimeString(), latency: r.latency });
+    const idx = lastResponses.findIndex(x => x.nodeId === r.nodeId && x.pending);
+    if (idx >= 0) {
+      lastResponses[idx] = {
+        ...lastResponses[idx],
+        text: r.response ? (typeof r.response === 'string' ? r.response : JSON.stringify(r.response)) : 'No response payload',
+        ts: new Date().toLocaleTimeString(),
+        latency: r.latency || 0,
+        pending: false
+      };
+    } else if (r.response) {
+      lastResponses.unshift({ nodeId: r.nodeId, nodeName: r.node, text: typeof r.response === 'string' ? r.response : JSON.stringify(r.response), ts: new Date().toLocaleTimeString(), latency: r.latency, pending: false });
+    }
   });
   while (lastResponses.length > 30) lastResponses.pop();
   renderSideTab();
