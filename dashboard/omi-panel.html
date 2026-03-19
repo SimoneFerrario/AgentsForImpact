@@ -145,6 +145,19 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  #command-input.triggered {
+    border-color: #7c7cff;
+    box-shadow: 0 0 8px #7c7cff88;
+    animation: fadein 0.2s ease;
+  }
+
+  #command-input:focus { border-color: #3333aa; }
+
+  @keyframes wake-flash {
+    0% { background: #7c7cff; box-shadow: 0 0 10px #7c7cff; }
+    100% { background: #333; box-shadow: none; }
+  }
+
   .empty-hint {
     color: #2a2a4a;
     font-size: 12px;
@@ -238,6 +251,30 @@
 
 </div>
 
+<!-- Command bar — populated by wake word or manual input -->
+<div id="command-bar" style="
+  background: #0f0f1a;
+  border-top: 1px solid #1e1e3a;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+">
+  <span style="color:#5555aa; font-size:11px; letter-spacing:0.1em; white-space:nowrap;">⚡ HEY OPENCLAW</span>
+  <input id="command-input" type="text" placeholder='Say "Hey OpenClaw, ..." or type here'
+    style="
+      flex:1; background:#050510; border:1px solid #1e1e3a; border-radius:4px;
+      color:#00e5ff; font-family:'Courier New',monospace; font-size:13px;
+      padding:6px 12px; outline:none;
+    "
+    onkeydown="if(event.key==='Enter'){ triggerCommand(this.value); }"
+  />
+  <div id="wake-indicator" style="
+    width:10px; height:10px; border-radius:50%; background:#333; transition:background 0.2s;
+  "></div>
+</div>
+
 <script>
   // --- Config ---
   // Auto-detect bridge URL from current page origin, or override here
@@ -277,6 +314,45 @@
     };
   }
 
+  // --- Wake word detection ---
+  const WAKE_WORD = /hey\s+open\s*claw/i;
+  let wakeActive = false;
+  let wakeBuffer = '';
+
+  function checkWakeWord(text) {
+    wakeBuffer = (wakeBuffer + ' ' + text).slice(-200); // rolling buffer
+    if (WAKE_WORD.test(wakeBuffer)) {
+      wakeBuffer = '';
+      const command = text.replace(WAKE_WORD, '').trim();
+      triggerCommand(command || text);
+    }
+  }
+
+  function triggerCommand(text) {
+    // Flash the header
+    document.querySelector('header').style.background = '#1a0a2a';
+    setTimeout(() => document.querySelector('header').style.background = '#0f0f1a', 600);
+
+    // Set the command input box
+    const box = document.getElementById('command-input');
+    if (box) {
+      box.value = text;
+      box.classList.add('triggered');
+      setTimeout(() => box.classList.remove('triggered'), 1500);
+    }
+
+    // Flash wake indicator
+    const ind = document.getElementById('wake-indicator');
+    if (ind) {
+      ind.style.background = '#7c7cff';
+      ind.style.boxShadow = '0 0 10px #7c7cff';
+      setTimeout(() => { ind.style.background = '#333'; ind.style.boxShadow = 'none'; }, 1500);
+    }
+
+    // Show in agent panel as pending
+    addAgent(new Date().toLocaleTimeString(), `⚡ Wake word triggered → "${text}"`);
+  }
+
   function handleMessage(msg) {
     document.getElementById('s-last-event').textContent = new Date().toLocaleTimeString();
 
@@ -285,6 +361,7 @@
       document.getElementById('s-transcript-count').textContent = transcriptCount;
       document.getElementById('transcript-indicator').classList.add('active');
       addTranscript(msg.ts, msg.text);
+      checkWakeWord(msg.text);
       setTimeout(() => document.getElementById('transcript-indicator').classList.remove('active'), 800);
     }
 
